@@ -201,6 +201,44 @@ tbody tr:hover{background:var(--row-hover);}
 .empty-state{padding:50px 20px;text-align:center;color:var(--ink-soft);}
 .empty-state .big{font-size:32px;margin-bottom:10px;}
 
+/* production: grouped by order */
+tr.group-row{cursor:pointer;background:var(--tint);}
+tr.group-row:hover{background:var(--tint-strong);}
+tr.group-row.selected{background:var(--gold-tint);}
+tr.group-row.selected:hover{background:var(--gold-tint);}
+tr.group-row td{padding:0;border-bottom:1px solid var(--border);}
+.group-row-inner{display:flex;align-items:center;gap:12px;padding:12px 16px;flex-wrap:wrap;}
+.group-radio{
+  width:16px;height:16px;border-radius:50%;border:2px solid var(--ink-soft);flex-shrink:0;
+  display:inline-block;position:relative;
+}
+.group-radio.checked{border-color:var(--gold);}
+.group-radio.checked::after{
+  content:'';position:absolute;inset:2px;border-radius:50%;background:var(--gold);
+}
+.group-toggle{
+  width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+  background:var(--card);color:var(--navy);flex-shrink:0;transition:transform .18s ease;
+}
+.group-row.expanded .group-toggle{transform:rotate(180deg);}
+.group-order-badge{
+  font-weight:800;color:var(--navy);background:var(--card);padding:4px 12px;border-radius:20px;font-size:13px;
+}
+.group-date{font-weight:700;color:var(--ink);font-size:13px;}
+.group-meta{color:var(--ink-soft);font-size:12.5px;margin-inline-end:auto;}
+.group-add{white-space:nowrap;}
+tr.detail-row td{background:var(--card);}
+tr.detail-row td:first-child{position:relative;}
+tr.detail-row.dim td{color:var(--ink-soft);}
+.export-scope-pill{
+  display:inline-flex;align-items:center;gap:6px;background:var(--gold-tint);color:#9A7000;
+  padding:6px 12px;border-radius:20px;font-size:12.5px;font-weight:700;white-space:nowrap;
+}
+.export-scope-pill button{
+  color:#9A7000;font-size:13px;line-height:1;width:16px;height:16px;display:flex;align-items:center;justify-content:center;
+}
+.export-scope-pill button:hover{color:var(--danger);}
+
 /* quick adjust */
 .qty-adjust{display:flex;align-items:center;gap:5px;}
 .qty-adjust input{width:64px;border:1px solid var(--border);border-radius:7px;padding:5px 7px;font-size:12.5px;text-align:center;}
@@ -404,6 +442,7 @@ const ICONS = {
   clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
   sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/>',
+  chevron:'<path d="M6 9l6 6 6-6"/>',
 };
 function svgIcon(name, cls){
   return `<svg class="icon-svg ${cls||''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`;
@@ -896,6 +935,7 @@ const CONFIGS = {
 };
 
 let tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
+let selectedProdGroup = null; // group key currently selected — click a row to select it, then "تصدير Excel" exports only that order
 
 function durationLabel(from,to){
   if(!from || !to) return '—';
@@ -912,13 +952,16 @@ function renderGenericTab(tabId){
   const cfg = CONFIGS[tabId];
   const list = DB[tabId];
 
-  // filter options for raw category
+  // filter options for raw category / production order
   let filterHtml = '';
   if(cfg.filterKey){
-    const opts = [...new Set(list.map(i=>i[cfg.filterKey]).filter(Boolean))];
+    const rawVals = list.map(i=> (i[cfg.filterKey]||'').toString().trim());
+    const hasBlank = rawVals.some(v=>!v);
+    const opts = [...new Set(rawVals.filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
     filterHtml = `<select class="filter-box" id="filterBox">
-      <option value="">كل الأنواع</option>
+      <option value="">${cfg.filterAllLabel || 'كل الأنواع'}</option>
       ${opts.map(o=>`<option value="${esc(o)}" ${tableState.filter===o?'selected':''}>${esc(o)}</option>`).join('')}
+      ${hasBlank ? `<option value="__NONE__" ${tableState.filter==='__NONE__'?'selected':''}>بدون أوردر</option>` : ''}
     </select>`;
   }
 
@@ -939,6 +982,7 @@ function renderGenericTab(tabId){
         <input class="search-box" id="searchBox" placeholder="بحث..." value="${esc(tableState.search)}">
         ${filterHtml}
         ${dateRangeHtml}
+        ${tabId==='production' ? `<span id="exportScopeHint"></span>` : ''}
         <button class="btn btn-ghost" id="exportBtn">${svgIcon('download','sm')} تصدير Excel</button>
         <button class="btn btn-gold" id="addBtn">+ ${cfg.addLabel}</button>
       </div>
@@ -972,7 +1016,18 @@ function renderGenericTab(tabId){
 
 function exportToExcel(tabId){
   const cfg = CONFIGS[tabId];
-  const list = getFilteredList(tabId);
+  let list = getFilteredList(tabId);
+  let fileTag = todayISO();
+
+  if(tabId==='production' && selectedProdGroup){
+    const { date, order } = parseProdGroupKey(selectedProdGroup);
+    list = DB.production.filter(item=>{
+      const ord = (item.order&&item.order.trim())?item.order.trim():'بدون أوردر';
+      return item.date===date && ord===order;
+    });
+    fileTag = `${order}-${date}`;
+  }
+
   if(!list.length){ showToast('لا يوجد بيانات لتصديرها'); return; }
   const exportCols = cfg.columns.filter(c=>c.key!=='adjust' && c.key!=='duration');
   const rows = list.map(item=>{
@@ -986,7 +1041,7 @@ function exportToExcel(tabId){
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, cfg.title.slice(0,28));
-    XLSX.writeFile(wb, `${cfg.title}-${todayISO()}.xlsx`);
+    XLSX.writeFile(wb, `${cfg.title}-${fileTag}.xlsx`);
     showToast('تم تصدير الملف');
     return;
   }
@@ -1005,7 +1060,7 @@ function exportToExcel(tabId){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${cfg.title}-${todayISO()}.csv`;
+  a.download = `${cfg.title}-${fileTag}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -1021,7 +1076,11 @@ function getFilteredList(tabId){
     list = list.filter(item=> cfg.searchKeys.some(k=> String(item[k]||'').toLowerCase().includes(q)));
   }
   if(cfg.filterKey && tableState.filter){
-    list = list.filter(item=> item[cfg.filterKey] === tableState.filter);
+    if(tableState.filter === '__NONE__'){
+      list = list.filter(item=> !(item[cfg.filterKey]||'').toString().trim());
+    } else {
+      list = list.filter(item=> (item[cfg.filterKey]||'').toString().trim() === tableState.filter);
+    }
   }
   if(cfg.dateKey){
     if(tableState.fromDate){ list = list.filter(item=> (item[cfg.dateKey]||'') >= tableState.fromDate); }
@@ -1038,6 +1097,11 @@ function renderTableRows(tabId){
 
   if(!list.length){
     holder.innerHTML = `<div class="empty-state"><div class="big">∅</div>لا توجد نتائج مطابقة</div>`;
+    return;
+  }
+
+  if(tabId==='production'){
+    renderProductionGroupedRows(list, holder);
     return;
   }
 
@@ -1114,6 +1178,125 @@ function renderTableRows(tabId){
   }));
 }
 
+/* Production tab: rows grouped by (date + order) — click a group to select+open it; export then targets only that order */
+function renderProductionGroupedRows(list, holder){
+  const cfg = CONFIGS.production;
+
+  const groupMap = new Map();
+  list.forEach(item=>{
+    const key = `${item.date||''}__${(item.order&&item.order.trim())?item.order.trim():'بدون أوردر'}`;
+    if(!groupMap.has(key)){
+      groupMap.set(key, { key, date:item.date, order:(item.order&&item.order.trim())?item.order.trim():'بدون أوردر', items:[] });
+    }
+    groupMap.get(key).items.push(item);
+  });
+  const groups = [...groupMap.values()];
+
+  const colCount = cfg.columns.length + 1;
+
+  const rowsHtml = groups.map(g=>{
+    const isSelected = selectedProdGroup === g.key;
+    const totalDrums = g.items.reduce((s,i)=> s + (Number(i.drums)||0), 0);
+    const totalProduced = g.items.reduce((s,i)=> s + (Number(i.produced)||0), 0);
+
+    const headerRow = `
+    <tr class="group-row ${isSelected?'expanded selected':''}" data-group="${esc(g.key)}">
+      <td colspan="${colCount}">
+        <div class="group-row-inner">
+          <span class="group-radio ${isSelected?'checked':''}" title="تحديد هذا الأوردر"></span>
+          <button class="group-toggle" data-group="${esc(g.key)}" title="عرض/إخفاء الأصناف">${svgIcon('chevron','sm')}</button>
+          <span class="group-date">${fmtDateAr(g.date)}</span>
+          <span class="group-order-badge">${esc(g.order)}</span>
+          <span class="group-meta">${g.items.length} صنف · ${fmtNum(totalDrums)} حلة · ${fmtNum(totalProduced)} كمية منتجة</span>
+          <button class="btn btn-sm btn-ghost group-add" data-date="${esc(g.date||'')}" data-order="${esc(g.order==='بدون أوردر'?'':g.order)}">+ إضافة صنف لنفس الأوردر</button>
+        </div>
+      </td>
+    </tr>`;
+
+    let detailRows = '';
+    if(isSelected){
+      detailRows = g.items.map(item=>{
+        const cells = cfg.columns.map(col=>{
+          if(col.key==='date' || col.key==='order') return `<td class="muted">—</td>`;
+          if(col.key==='drums' || col.key==='produced'){
+            return `<td class="num">${fmtNum(item[col.key])}</td>`;
+          }
+          return `<td>${esc(item[col.key]) || '<span class="muted">—</span>'}</td>`;
+        }).join('');
+        return `<tr class="detail-row" data-id="${item.id}">
+          ${cells}
+          <td>
+            <div class="row-actions">
+              <button class="icon-btn" data-act="edit" data-id="${item.id}" title="تعديل">${svgIcon('edit','sm')}</button>
+              <button class="icon-btn danger" data-act="delete" data-id="${item.id}" title="حذف">${svgIcon('trash','sm')}</button>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    return headerRow + detailRows;
+  }).join('');
+
+  holder.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr>${cfg.columns.map(c=>`<th>${c.label}</th>`).join('')}<th></th></tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table></div>`;
+
+  holder.querySelectorAll('.group-row').forEach(el=>{
+    el.addEventListener('click', (e)=>{
+      if(e.target.closest('.group-add')) return;
+      const key = el.dataset.group;
+      if(!key) return;
+      selectedProdGroup = (selectedProdGroup === key) ? null : key;
+      renderTableRows('production');
+      updateProdExportScopeUI();
+    });
+  });
+  holder.querySelectorAll('.group-add').forEach(b=>{
+    b.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      openItemModal('production', null, { date:b.dataset.date, order:b.dataset.order });
+    });
+  });
+  holder.querySelectorAll('[data-act="edit"]').forEach(b=>b.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const item = DB.production.find(i=>i.id===b.dataset.id);
+    openItemModal('production', item);
+  }));
+  holder.querySelectorAll('[data-act="delete"]').forEach(b=>b.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    confirmDelete('production', b.dataset.id);
+  }));
+
+  updateProdExportScopeUI();
+}
+
+/* Parses a production group key ("date__order") back into its parts */
+function parseProdGroupKey(key){
+  const idx = key.indexOf('__');
+  return { date: key.slice(0,idx), order: key.slice(idx+2) };
+}
+
+/* Updates the small hint/badge next to the Export button to reflect the current row selection */
+function updateProdExportScopeUI(){
+  const hint = document.getElementById('exportScopeHint');
+  if(!hint) return;
+  if(selectedProdGroup){
+    const { date, order } = parseProdGroupKey(selectedProdGroup);
+    hint.innerHTML = `<span class="export-scope-pill">تصدير: ${esc(order)} · ${fmtDateAr(date)} <button id="clearExportScope" title="إلغاء التحديد وتصدير الكل">✕</button></span>`;
+    const clearBtn = document.getElementById('clearExportScope');
+    if(clearBtn) clearBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      selectedProdGroup = null;
+      renderTableRows('production');
+      updateProdExportScopeUI();
+    });
+  } else {
+    hint.innerHTML = '';
+  }
+}
+
 function confirmDelete(tabId, id){
   const item = DB[tabId].find(i=>i.id===id);
   const name = item.name || item.description || 'هذا العنصر';
@@ -1131,10 +1314,10 @@ function closeModal(){
   document.getElementById('modalRoot').innerHTML = '';
 }
 
-function openItemModal(tabId, item){
+function openItemModal(tabId, item, presetVals){
   const cfg = CONFIGS[tabId];
   const isEdit = !!item;
-  const val = (k, def)=> isEdit ? (item[k]!==undefined && item[k]!==null ? item[k] : '') : (def!==undefined?def:'');
+  const val = (k, def)=> isEdit ? (item[k]!==undefined && item[k]!==null ? item[k] : '') : (presetVals && presetVals[k]!==undefined ? presetVals[k] : (def!==undefined?def:''));
 
   const fieldsHtml = cfg.fields.map(f=>{
     const id = 'f_'+f.key;
@@ -1346,6 +1529,7 @@ let ordersState = { selected:null };
 /* ================= ROUTER ================= */
 function renderContent(){
   tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
+  selectedProdGroup = null;
   if(currentTab==='dashboard') renderDashboard();
   else if(currentTab==='orders') renderOrdersTab();
   else renderGenericTab(currentTab);
