@@ -566,7 +566,7 @@ function freshDB(){
     settings:{ lowStockThreshold: 10 },
     raw: SEED.raw.map(r=>({id:uid(), name:r.name, category:r.category, supplier:r.supplier, balance:r.balance, history:[]})),
     rolls: SEED.rolls.map(r=>({id:uid(), name:r.name, flavor:r.flavor, balance:r.balance, history:[]})),
-    cartons: SEED_CARTONS.map(c=>({id:uid(), name:c.name, size:c.size, notes:c.notes||'', barcode:c.barcode||''})),
+    cartons: SEED_CARTONS.map(c=>({id:uid(), name:c.name, size:c.size, balance:c.balance||0, notes:c.notes||'', barcode:c.barcode||'', history:[]})),
     production: SEED.production.map(p=>({id:uid(), date:p.date, order:p.order, item:p.item, flavor:p.flavor, drums:p.drums, produced:p.produced, notes:p.notes||''})),
     waste: SEED.waste.map(w=>({id:uid(), date:w.date, item:w.item, wasteType:w.wasteType, qty:w.qty, reason:w.reason||''})),
     breakdowns: SEED.breakdowns.map(b=>({id:uid(), date:b.date, description:b.description, from:b.from, to:b.to}))
@@ -579,7 +579,8 @@ async function loadDB(){
     if(res && res.value){
       DB = JSON.parse(res.value);
       if(!DB.settings) DB.settings = {lowStockThreshold:10};
-      if(!DB.cartons) DB.cartons = SEED_CARTONS.map(c=>({id:uid(), name:c.name, size:c.size, notes:c.notes||'', barcode:c.barcode||''}));
+      if(!DB.cartons) DB.cartons = SEED_CARTONS.map(c=>({id:uid(), name:c.name, size:c.size, balance:c.balance||0, notes:c.notes||'', barcode:c.barcode||'', history:[]}));
+      else DB.cartons.forEach(c=>{ if(c.balance===undefined||c.balance===null) c.balance=0; if(!c.history) c.history=[]; });
       return;
     }
   }catch(e){ /* not found */ }
@@ -691,7 +692,8 @@ function lowStockItems(){
   const th = DB.settings.lowStockThreshold;
   const rawLow = DB.raw.filter(r=>r.balance <= th).map(r=>({...r, kind:'خامة'}));
   const rollsLow = DB.rolls.filter(r=>r.balance <= th).map(r=>({...r, kind:'رول'}));
-  return [...rawLow, ...rollsLow].sort((a,b)=>a.balance-b.balance);
+  const cartonsLow = DB.cartons.filter(c=>c.balance <= th).map(c=>({...c, kind:'كرتونة'}));
+  return [...rawLow, ...rollsLow, ...cartonsLow].sort((a,b)=>a.balance-b.balance);
 }
 
 function totalMinutes(from,to){
@@ -870,7 +872,7 @@ function renderDashboard(){
             <tr>
               <td><span class="pill pill-navy">${i.kind}</span></td>
               <td style="font-weight:700">${esc(i.name)}</td>
-              <td class="muted">${esc(i.category||i.flavor||'')}${i.supplier?' · '+esc(i.supplier):''}</td>
+              <td class="muted">${esc(i.category||i.flavor||i.size||'')}${i.supplier?' · '+esc(i.supplier):''}</td>
               <td class="num" style="color:var(--danger)">${fmtNum(i.balance)}</td>
             </tr>`).join('')}
         </tbody>
@@ -950,14 +952,17 @@ const CONFIGS = {
     fields:[
       {key:'name', label:'اسم الكرتونة', type:'text', required:true},
       {key:'size', label:'المقاس (طول×عرض×ارتفاع)', type:'text', required:false},
+      {key:'balance', label:'الرصيد الحالي', type:'number', required:true, step:'1'},
       {key:'notes', label:'الملاحظات', type:'text', required:false},
       {key:'barcode', label:'الباركود', type:'text', required:false},
     ],
     columns:[
       {key:'name', label:'الكرتونة'},
       {key:'size', label:'المقاس'},
+      {key:'balance', label:'الرصيد الحالي'},
       {key:'notes', label:'الملاحظات'},
       {key:'barcode', label:'الباركود'},
+      {key:'adjust', label:'صرف / إضافة'},
     ],
     searchKeys:['name','size','notes','barcode'],
     filterKey:null,
@@ -1294,7 +1299,7 @@ function renderTableRows(tabId){
       }
       return `<td>${esc(item[col.key]) || '<span class="muted">—</span>'}</td>`;
     }).join('');
-    const hasHistory = (tabId==='raw' || tabId==='rolls');
+    const hasHistory = (tabId==='raw' || tabId==='rolls' || tabId==='cartons');
     return `<tr data-id="${item.id}">
       ${cells}
       <td>
@@ -1828,7 +1833,7 @@ function renderNotifDropdown(low){
     <div class="notif-dd-head">أصناف تحت حد الأمان (${low.length})</div>
     <div class="notif-dd-list">
       ${low.map(it=>`
-        <button class="notif-dd-item" data-kind="${it.kind==='خامة'?'raw':'rolls'}">
+        <button class="notif-dd-item" data-kind="${it.kind==='خامة'?'raw':(it.kind==='رول'?'rolls':'cartons')}">
           <span class="notif-dd-name">${esc(it.name)}${it.flavor?` — ${esc(it.flavor)}`:''}</span>
           <span class="notif-dd-bal">${fmtNum(it.balance)}</span>
         </button>`).join('')}
