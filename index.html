@@ -208,13 +208,14 @@ tr.group-row.selected{background:var(--gold-tint);}
 tr.group-row.selected:hover{background:var(--gold-tint);}
 tr.group-row td{padding:0;border-bottom:1px solid var(--border);}
 .group-row-inner{display:flex;align-items:center;gap:12px;padding:12px 16px;flex-wrap:wrap;}
-.group-radio{
-  width:16px;height:16px;border-radius:50%;border:2px solid var(--ink-soft);flex-shrink:0;
+.group-check{
+  width:16px;height:16px;border-radius:5px;border:2px solid var(--ink-soft);flex-shrink:0;
   display:inline-block;position:relative;
 }
-.group-radio.checked{border-color:var(--gold);}
-.group-radio.checked::after{
-  content:'';position:absolute;inset:2px;border-radius:50%;background:var(--gold);
+.group-check.checked{border-color:var(--gold);background:var(--gold);}
+.group-check.checked::after{
+  content:'';position:absolute;left:3px;top:0px;width:4px;height:8px;
+  border:solid var(--navy-dark);border-width:0 2px 2px 0;transform:rotate(45deg);
 }
 .group-toggle{
   width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;
@@ -238,6 +239,37 @@ tr.detail-row.dim td{color:var(--ink-soft);}
   color:#9A7000;font-size:13px;line-height:1;width:16px;height:16px;display:flex;align-items:center;justify-content:center;
 }
 .export-scope-pill button:hover{color:var(--danger);}
+
+/* production summary breakdown bars */
+.order-breakdown-list{display:flex;flex-direction:column;gap:10px;}
+.order-breakdown-row{display:flex;align-items:center;gap:12px;}
+.ob-name{
+  width:110px;flex-shrink:0;font-weight:700;font-size:12.5px;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.ob-bar-track{flex:1;height:10px;border-radius:6px;background:var(--tint);overflow:hidden;}
+.ob-bar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--gold),var(--gold-light));}
+.ob-value{width:150px;flex-shrink:0;text-align:left;font-weight:800;font-size:13px;color:var(--navy);white-space:nowrap;}
+
+/* print report (production PDF) */
+#printArea{display:none;}
+#printArea .pr-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #2D2B74;padding-bottom:14px;margin-bottom:18px;}
+#printArea .pr-brand{font-size:22px;font-weight:800;color:#2D2B74;}
+#printArea .pr-brand span{color:#FEB913;}
+#printArea .pr-title{font-size:15px;font-weight:700;color:#1E1D3D;margin-top:4px;}
+#printArea .pr-meta{text-align:left;font-size:11.5px;color:#6B698F;line-height:1.6;}
+#printArea table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;}
+#printArea th{background:#EDECFA;color:#2D2B74;padding:8px 10px;text-align:right;border:1px solid #E6E5F2;font-weight:700;}
+#printArea td{padding:7px 10px;border:1px solid #E6E5F2;text-align:right;}
+#printArea tfoot td{font-weight:800;background:#FFF3D6;}
+#printArea .pr-groupline td{background:#F5F5FB;font-weight:800;color:#2D2B74;}
+#printArea .pr-foot{margin-top:18px;font-size:10.5px;color:#9B98BE;text-align:center;}
+@media print{
+  body *{visibility:hidden;}
+  #printArea, #printArea *{visibility:visible;}
+  #printArea{display:block;position:absolute;top:0;right:0;left:0;padding:16px;}
+  @page{margin:14mm;}
+}
 
 /* quick adjust */
 .qty-adjust{display:flex;align-items:center;gap:5px;}
@@ -303,6 +335,36 @@ tr.detail-row.dim td{color:var(--ink-soft);}
 }
 .theme-toggle:hover{background:var(--tint);}
 .theme-toggle .icon-svg{width:17px;height:17px;}
+
+/* notification bell */
+.notif-wrap{position:relative;}
+.notif-bell{
+  width:36px;height:36px;border-radius:9px;background:var(--bg);border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;color:var(--navy);position:relative;
+}
+.notif-bell:hover{background:var(--tint);}
+.notif-bell .icon-svg{width:17px;height:17px;}
+.notif-badge{
+  position:absolute;top:-5px;left:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+  background:var(--danger);color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;
+  border:2px solid var(--card);
+}
+.notif-dropdown{
+  position:absolute;top:44px;left:0;width:300px;background:var(--card);border:1px solid var(--border);
+  border-radius:12px;box-shadow:0 12px 28px rgba(32,30,86,0.14);z-index:50;overflow:hidden;
+}
+.notif-dd-head{padding:12px 14px;font-weight:800;font-size:13px;color:var(--navy);border-bottom:1px solid var(--border);}
+.notif-dd-list{max-height:280px;overflow-y:auto;}
+.notif-dd-item{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px 14px;border-bottom:1px solid var(--border);text-align:right;font-size:12.5px;
+}
+.notif-dd-item:hover{background:var(--row-hover);}
+.notif-dd-item:last-child{border-bottom:none;}
+.notif-dd-name{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.notif-dd-bal{color:var(--danger);font-weight:800;flex-shrink:0;}
+.notif-dd-foot{padding:9px 14px;font-size:11px;color:var(--ink-soft);background:var(--bg);}
+.notif-empty{padding:20px 14px;text-align:center;font-size:12.5px;color:var(--ink-soft);}
 
 /* ============ v2 additions ============ */
 .icon-svg{width:17px;height:17px;flex-shrink:0;}
@@ -409,6 +471,10 @@ tr.detail-row.dim td{color:var(--ink-soft);}
         </div>
       </div>
       <div class="topbar-right">
+        <div class="notif-wrap">
+          <button class="notif-bell" id="notifBell" title="تنبيهات المخزون"><span class="notif-badge hidden" id="notifBadge"></span></button>
+          <div class="notif-dropdown hidden" id="notifDropdown"></div>
+        </div>
         <button class="theme-toggle" id="themeToggle" title="تبديل الوضع الداكن/الفاتح" aria-label="تبديل الوضع الداكن/الفاتح"></button>
         <div class="save-indicator"><span class="save-dot" id="saveDot"></span><span id="saveText">محفوظ</span></div>
       </div>
@@ -420,6 +486,7 @@ tr.detail-row.dim td{color:var(--ink-soft);}
 <div id="modalRoot"></div>
 <div id="drawerRoot"></div>
 <div class="toast" id="toast"><span class="dot"></span><span id="toastText"></span></div>
+<div id="printArea"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
@@ -443,6 +510,8 @@ const ICONS = {
   sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/>',
   chevron:'<path d="M6 9l6 6 6-6"/>',
+  print:'<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6v-7Z"/>',
+  bell:'<path d="M6 8a6 6 0 0 1 12 0c0 6.5 2.5 8.5 2.5 8.5H3.5S6 14.5 6 8Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
 };
 function svgIcon(name, cls){
   return `<svg class="icon-svg ${cls||''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`;
@@ -599,6 +668,7 @@ function renderNav(){
   nav.querySelectorAll('.nav-item').forEach(btn=>{
     btn.addEventListener('click', ()=>{ setTab(btn.dataset.tab); });
   });
+  if(typeof updateNotifBell === 'function') updateNotifBell();
 }
 
 function setTab(tab){
@@ -935,7 +1005,7 @@ const CONFIGS = {
 };
 
 let tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
-let selectedProdGroup = null; // group key currently selected — click a row to select it, then "تصدير Excel" exports only that order
+let selectedProdGroups = new Set(); // group keys currently selected — click rows to select them, then "تصدير Excel" exports only those orders
 
 function durationLabel(from,to){
   if(!from || !to) return '—';
@@ -946,6 +1016,68 @@ function durationLabel(from,to){
   if(mins < 0) mins += 24*60;
   const h = Math.floor(mins/60), m = mins%60;
   return (h?`${h} س `:'') + `${m} د`;
+}
+
+/* Quick production summary card shown above the الإنتاج اليومي table: rolling 7 days + current calendar month, broken down by order */
+function renderProductionSummary(){
+  const today = todayISO();
+  const weekStart = new Date(); weekStart.setDate(weekStart.getDate()-6);
+  const weekStartISO = weekStart.toISOString().slice(0,10);
+  const monthPrefix = today.slice(0,7);
+
+  const weekItems = DB.production.filter(p=> p.date && p.date>=weekStartISO && p.date<=today);
+  const monthItems = DB.production.filter(p=> p.date && p.date.startsWith(monthPrefix));
+
+  const sumProduced = arr=> arr.reduce((s,p)=>s+(Number(p.produced)||0),0);
+  const weekTotal = sumProduced(weekItems);
+  const monthTotal = sumProduced(monthItems);
+  const monthOrdersCount = new Set(monthItems.map(p=>(p.order&&p.order.trim())?p.order.trim():'بدون أوردر')).size;
+
+  // breakdown by order for the current month
+  const byOrder = {};
+  monthItems.forEach(p=>{
+    const key = (p.order&&p.order.trim())?p.order.trim():'بدون أوردر';
+    if(!byOrder[key]) byOrder[key] = { order:key, produced:0, drums:0, runs:0 };
+    byOrder[key].produced += Number(p.produced)||0;
+    byOrder[key].drums += Number(p.drums)||0;
+    byOrder[key].runs += 1;
+  });
+  const orderBreakdown = Object.values(byOrder).sort((a,b)=>b.produced-a.produced);
+  const maxProduced = orderBreakdown.length ? orderBreakdown[0].produced : 0;
+
+  return `
+  <div class="cards-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:14px;">
+    <div class="stat-card">
+      <div class="icon-wrap">${svgIcon('clock')}</div>
+      <div class="label">إنتاج آخر 7 أيام</div>
+      <div class="value">${fmtNum(weekTotal)}</div>
+      <div class="foot">${weekItems.length} تسجيل إنتاج</div>
+    </div>
+    <div class="stat-card">
+      <div class="icon-wrap gold">${svgIcon('box')}</div>
+      <div class="label">إنتاج الشهر الحالي</div>
+      <div class="value">${fmtNum(monthTotal)}</div>
+      <div class="foot">${monthItems.length} تسجيل إنتاج</div>
+    </div>
+    <div class="stat-card">
+      <div class="icon-wrap ok">${svgIcon('orders')}</div>
+      <div class="label">أوردرات نشطة هذا الشهر</div>
+      <div class="value">${monthOrdersCount}</div>
+      <div class="foot">أوردر مختلف تم الإنتاج له</div>
+    </div>
+  </div>
+  ${orderBreakdown.length ? `
+  <div class="chart-card" style="margin-bottom:14px;">
+    <h3>الإنتاج حسب الأوردر — الشهر الحالي</h3>
+    <div class="order-breakdown-list">
+      ${orderBreakdown.map(o=>`
+        <div class="order-breakdown-row">
+          <span class="ob-name">${esc(o.order)}</span>
+          <div class="ob-bar-track"><div class="ob-bar-fill" style="width:${maxProduced? Math.max(4, (o.produced/maxProduced*100)) : 0}%"></div></div>
+          <span class="ob-value">${fmtNum(o.produced)} <span class="muted" style="font-weight:600;font-size:11.5px">· ${o.runs} تشغيلة</span></span>
+        </div>`).join('')}
+    </div>
+  </div>` : ''}`;
 }
 
 function renderGenericTab(tabId){
@@ -975,6 +1107,7 @@ function renderGenericTab(tabId){
   }
 
   let html = `
+  ${tabId==='production' ? renderProductionSummary() : ''}
   <div class="panel">
     <div class="panel-head">
       <h2>${cfg.title} <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
@@ -984,6 +1117,7 @@ function renderGenericTab(tabId){
         ${dateRangeHtml}
         ${tabId==='production' ? `<span id="exportScopeHint"></span>` : ''}
         <button class="btn btn-ghost" id="exportBtn">${svgIcon('download','sm')} تصدير Excel</button>
+        ${tabId==='production' ? `<button class="btn btn-ghost" id="printBtn">${svgIcon('print','sm')} طباعة PDF</button>` : ''}
         <button class="btn btn-gold" id="addBtn">+ ${cfg.addLabel}</button>
       </div>
     </div>
@@ -1012,6 +1146,9 @@ function renderGenericTab(tabId){
   }
   document.getElementById('addBtn').addEventListener('click', ()=> openItemModal(tabId, null));
   document.getElementById('exportBtn').addEventListener('click', ()=> exportToExcel(tabId));
+  if(tabId==='production'){
+    document.getElementById('printBtn').addEventListener('click', printProductionReport);
+  }
 }
 
 function exportToExcel(tabId){
@@ -1019,13 +1156,15 @@ function exportToExcel(tabId){
   let list = getFilteredList(tabId);
   let fileTag = todayISO();
 
-  if(tabId==='production' && selectedProdGroup){
-    const { date, order } = parseProdGroupKey(selectedProdGroup);
+  if(tabId==='production' && selectedProdGroups.size){
+    const parsedKeys = [...selectedProdGroups].map(parseProdGroupKey);
     list = DB.production.filter(item=>{
       const ord = (item.order&&item.order.trim())?item.order.trim():'بدون أوردر';
-      return item.date===date && ord===order;
+      return parsedKeys.some(pk=> pk.date===item.date && pk.order===ord);
     });
-    fileTag = `${order}-${date}`;
+    fileTag = parsedKeys.length===1
+      ? `${parsedKeys[0].order}-${parsedKeys[0].date}`
+      : `${parsedKeys.length}-اوردرات-${todayISO()}`;
   }
 
   if(!list.length){ showToast('لا يوجد بيانات لتصديرها'); return; }
@@ -1195,7 +1334,7 @@ function renderProductionGroupedRows(list, holder){
   const colCount = cfg.columns.length + 1;
 
   const rowsHtml = groups.map(g=>{
-    const isSelected = selectedProdGroup === g.key;
+    const isSelected = selectedProdGroups.has(g.key);
     const totalDrums = g.items.reduce((s,i)=> s + (Number(i.drums)||0), 0);
     const totalProduced = g.items.reduce((s,i)=> s + (Number(i.produced)||0), 0);
 
@@ -1203,7 +1342,7 @@ function renderProductionGroupedRows(list, holder){
     <tr class="group-row ${isSelected?'expanded selected':''}" data-group="${esc(g.key)}">
       <td colspan="${colCount}">
         <div class="group-row-inner">
-          <span class="group-radio ${isSelected?'checked':''}" title="تحديد هذا الأوردر"></span>
+          <span class="group-check ${isSelected?'checked':''}" title="تحديد هذا الأوردر (يمكن تحديد أكثر من أوردر)"></span>
           <button class="group-toggle" data-group="${esc(g.key)}" title="عرض/إخفاء الأصناف">${svgIcon('chevron','sm')}</button>
           <span class="group-date">${fmtDateAr(g.date)}</span>
           <span class="group-order-badge">${esc(g.order)}</span>
@@ -1248,7 +1387,8 @@ function renderProductionGroupedRows(list, holder){
       if(e.target.closest('.group-add')) return;
       const key = el.dataset.group;
       if(!key) return;
-      selectedProdGroup = (selectedProdGroup === key) ? null : key;
+      if(selectedProdGroups.has(key)) selectedProdGroups.delete(key);
+      else selectedProdGroups.add(key);
       renderTableRows('production');
       updateProdExportScopeUI();
     });
@@ -1282,19 +1422,92 @@ function parseProdGroupKey(key){
 function updateProdExportScopeUI(){
   const hint = document.getElementById('exportScopeHint');
   if(!hint) return;
-  if(selectedProdGroup){
-    const { date, order } = parseProdGroupKey(selectedProdGroup);
-    hint.innerHTML = `<span class="export-scope-pill">تصدير: ${esc(order)} · ${fmtDateAr(date)} <button id="clearExportScope" title="إلغاء التحديد وتصدير الكل">✕</button></span>`;
+  if(selectedProdGroups.size){
+    const parsed = [...selectedProdGroups].map(parseProdGroupKey);
+    const label = parsed.length===1
+      ? `${esc(parsed[0].order)} · ${fmtDateAr(parsed[0].date)}`
+      : `${parsed.length} أوردرات محددة`;
+    hint.innerHTML = `<span class="export-scope-pill">تصدير: ${label} <button id="clearExportScope" title="إلغاء التحديد وتصدير الكل">✕</button></span>`;
     const clearBtn = document.getElementById('clearExportScope');
     if(clearBtn) clearBtn.addEventListener('click', (e)=>{
       e.stopPropagation();
-      selectedProdGroup = null;
+      selectedProdGroups.clear();
       renderTableRows('production');
       updateProdExportScopeUI();
     });
   } else {
     hint.innerHTML = '';
   }
+}
+
+/* Builds & prints a PDF-ready report for the الإنتاج اليومي tab — selected orders if any are picked, otherwise the current filtered view */
+function printProductionReport(){
+  let list, scopeLabel;
+  if(selectedProdGroups.size){
+    const parsed = [...selectedProdGroups].map(parseProdGroupKey);
+    list = DB.production.filter(item=>{
+      const ord = (item.order&&item.order.trim())?item.order.trim():'بدون أوردر';
+      return parsed.some(pk=> pk.date===item.date && pk.order===ord);
+    });
+    scopeLabel = parsed.length===1
+      ? `الأوردر: ${parsed[0].order} — ${fmtDateAr(parsed[0].date)}`
+      : `${parsed.length} أوردرات محددة`;
+  } else {
+    list = getFilteredList('production');
+    scopeLabel = (tableState.fromDate||tableState.toDate)
+      ? `الفترة: ${tableState.fromDate?fmtDateAr(tableState.fromDate):'البداية'} — ${tableState.toDate?fmtDateAr(tableState.toDate):'الآن'}`
+      : 'كل التسجيلات';
+  }
+
+  if(!list.length){ showToast('لا يوجد بيانات لطباعتها'); return; }
+
+  // group rows by order for a clearer printed report
+  const groups = {};
+  list.forEach(item=>{
+    const key = (item.order&&item.order.trim())?item.order.trim():'بدون أوردر';
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(item);
+  });
+
+  const totalProduced = list.reduce((s,i)=>s+(Number(i.produced)||0),0);
+  const totalDrums = list.reduce((s,i)=>s+(Number(i.drums)||0),0);
+
+  const rowsHtml = Object.entries(groups).map(([order, items])=>{
+    const groupLine = `<tr class="pr-groupline"><td colspan="6">${esc(order)} — ${items.length} صنف</td></tr>`;
+    const itemRows = items.map(item=>`
+      <tr>
+        <td>${fmtDateAr(item.date)}</td>
+        <td>${esc(item.item)||'—'}</td>
+        <td>${esc(item.flavor)||'—'}</td>
+        <td>${fmtNum(item.drums)}</td>
+        <td>${fmtNum(item.produced)}</td>
+        <td>${esc(item.notes)||'—'}</td>
+      </tr>`).join('');
+    return groupLine + itemRows;
+  }).join('');
+
+  const now = new Date();
+  const generatedAt = now.toLocaleString('ar-EG', { dateStyle:'medium', timeStyle:'short' });
+
+  document.getElementById('printArea').innerHTML = `
+    <div class="pr-header">
+      <div>
+        <div class="pr-brand">egy<span>gulf</span> Foods</div>
+        <div class="pr-title">تقرير الإنتاج اليومي</div>
+      </div>
+      <div class="pr-meta">
+        ${esc(scopeLabel)}<br>
+        تاريخ الطباعة: ${generatedAt}
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>التاريخ</th><th>الصنف</th><th>الطعم</th><th>عدد الحلل</th><th>الكمية المنتجة</th><th>ملاحظات</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr><td colspan="3">الإجمالي</td><td>${fmtNum(totalDrums)}</td><td>${fmtNum(totalProduced)}</td><td></td></tr></tfoot>
+    </table>
+    <div class="pr-foot">EgyGulf Foods — نظام إدارة المخازن والإنتاج</div>
+  `;
+  window.print();
 }
 
 function confirmDelete(tabId, id){
@@ -1529,7 +1742,7 @@ let ordersState = { selected:null };
 /* ================= ROUTER ================= */
 function renderContent(){
   tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
-  selectedProdGroup = null;
+  selectedProdGroups.clear();
   if(currentTab==='dashboard') renderDashboard();
   else if(currentTab==='orders') renderOrdersTab();
   else renderGenericTab(currentTab);
@@ -1563,6 +1776,68 @@ async function toggleTheme(){
   try{ await StorageAPI.set(THEME_KEY, next, false); }catch(e){ /* ignore */ }
 }
 
+/* ================= LOW STOCK NOTIFICATIONS ================= */
+function updateNotifBell(){
+  const bell = document.getElementById('notifBell');
+  const badge = document.getElementById('notifBadge');
+  if(!bell) return;
+  // (re)draw the bell icon while preserving the badge element
+  if(!bell.querySelector('.icon-svg')) bell.insertAdjacentHTML('afterbegin', svgIcon('bell'));
+
+  const low = lowStockItems();
+  if(low.length){
+    badge.textContent = low.length > 99 ? '99+' : low.length;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+  renderNotifDropdown(low);
+}
+
+function renderNotifDropdown(low){
+  const dd = document.getElementById('notifDropdown');
+  if(!dd) return;
+  if(!low || !low.length){
+    dd.innerHTML = `<div class="notif-empty">لا يوجد أصناف تحت حد الأمان حاليًا 👍</div>`;
+    return;
+  }
+  dd.innerHTML = `
+    <div class="notif-dd-head">أصناف تحت حد الأمان (${low.length})</div>
+    <div class="notif-dd-list">
+      ${low.map(it=>`
+        <button class="notif-dd-item" data-kind="${it.kind==='خامة'?'raw':'rolls'}">
+          <span class="notif-dd-name">${esc(it.name)}${it.flavor?` — ${esc(it.flavor)}`:''}</span>
+          <span class="notif-dd-bal">${fmtNum(it.balance)}</span>
+        </button>`).join('')}
+    </div>
+    <div class="notif-dd-foot">حد الأمان الحالي: ${fmtNum(DB.settings.lowStockThreshold)}</div>`;
+
+  dd.querySelectorAll('.notif-dd-item').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      closeNotifDropdown();
+      setTab(b.dataset.kind);
+    });
+  });
+}
+
+function closeNotifDropdown(){
+  const dd = document.getElementById('notifDropdown');
+  if(dd) dd.classList.add('hidden');
+}
+
+function initNotifBell(){
+  const bell = document.getElementById('notifBell');
+  const dd = document.getElementById('notifDropdown');
+  if(!bell || !dd) return;
+  bell.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    dd.classList.toggle('hidden');
+  });
+  document.addEventListener('click', (e)=>{
+    if(!dd.classList.contains('hidden') && !e.target.closest('.notif-wrap')) closeNotifDropdown();
+  });
+}
+
 /* ================= BOOT ================= */
 async function boot(){
   await loadTheme();
@@ -1570,6 +1845,8 @@ async function boot(){
   await loadDB();
   renderNav();
   renderContent();
+  initNotifBell();
+  updateNotifBell();
   document.getElementById('loading').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
 }
