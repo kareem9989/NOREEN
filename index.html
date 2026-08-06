@@ -442,6 +442,37 @@ tr.detail-row.dim td{color:var(--ink-soft);}
 .filter-summary{font-size:12px;color:var(--ink-soft);margin-top:6px;}
 .empty-state .icon-svg{width:34px;height:34px;color:var(--ink-soft);opacity:.45;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;}
 </style>
+
+<!-- ============================================
+  ربط Firebase (مشروع منفصل خاص بـ EgyGulf Foods)
+  لازم تعمل مشروع Firebase جديد وتحط بياناته هنا
+============================================ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, doc, getDoc, setDoc
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // 👇 غيّر القيم دي ببيانات مشروع Firebase الجديد بتاع EgyGulf Foods
+  const firebaseConfig = {
+    apiKey: "AIzaSyBncusLSw_h6tjsgcYo9y6bzb-GuXisA-8",
+    authDomain: "noreen-922eb.firebaseapp.com",
+    projectId: "noreen-922eb",
+    storageBucket: "noreen-922eb.firebasestorage.app",
+    messagingSenderId: "90696020967",
+    appId: "1:90696020967:web:970c0478af451b6f2c4342"
+  };
+
+  try{
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    window.db = db;
+    window.fbFns = { doc, getDoc, setDoc };
+    window.dispatchEvent(new Event('firebase-ready'));
+  }catch(e){
+    console.error('Firebase init failed:', e);
+  }
+</script>
 </head>
 <body>
 
@@ -527,9 +558,20 @@ let saveTimer = null;
 
 const STORAGE_KEY = 'egygulf-foods-system-v1';
 
-/* Works inside Claude.ai artifacts (window.storage) AND on a standalone
-   deployment like Vercel/GitHub Pages, where it falls back to the browser's
-   own localStorage automatically — same interface either way. */
+/* Works inside Claude.ai artifacts (window.storage) automatically.
+   On a standalone deployment (Vercel/GitHub Pages) it uses Firebase Firestore
+   so the data is shared and synced across every device — not just the browser
+   it was saved on. Falls back to localStorage only if Firebase isn't ready yet. */
+const FIRESTORE_COLLECTION = 'app_storage';
+
+async function waitForFirebase(timeoutMs){
+  if(window.db && window.fbFns) return true;
+  return new Promise(resolve=>{
+    const t=setTimeout(()=>resolve(!!(window.db&&window.fbFns)), timeoutMs);
+    window.addEventListener('firebase-ready', ()=>{ clearTimeout(t); resolve(true); }, {once:true});
+  });
+}
+
 const StorageAPI = (function(){
   if (window.storage && typeof window.storage.get === 'function') {
     return window.storage;
@@ -537,12 +579,29 @@ const StorageAPI = (function(){
   return {
     async get(key){
       try{
+        const ready = await waitForFirebase(4000);
+        if(ready){
+          const {doc,getDoc}=window.fbFns;
+          const snap = await getDoc(doc(window.db, FIRESTORE_COLLECTION, key));
+          if(!snap.exists()) return null;
+          return {key, value: snap.data().value, shared:false};
+        }
+      }catch(e){ console.error('Firestore get failed, falling back to localStorage:', e); }
+      try{
         const v = localStorage.getItem(key);
         if(v===null) return null;
         return {key, value:v, shared:false};
       }catch(e){ return null; }
     },
     async set(key, value){
+      try{
+        const ready = await waitForFirebase(4000);
+        if(ready){
+          const {doc,setDoc}=window.fbFns;
+          await setDoc(doc(window.db, FIRESTORE_COLLECTION, key), {value, updatedAt:new Date().toISOString()});
+          return {key, value, shared:false};
+        }
+      }catch(e){ console.error('Firestore set failed, falling back to localStorage:', e); }
       try{ localStorage.setItem(key, value); return {key, value, shared:false}; }
       catch(e){ return null; }
     },
