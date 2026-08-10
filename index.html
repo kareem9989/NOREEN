@@ -989,8 +989,8 @@ const CONFIGS = {
       {key:'balance', label:'الرصيد الحالي'},
       {key:'adjust', label:'صرف / إضافة'},
     ],
-    columnsFlavors:[
-      {key:'name', label:'الطعم'},
+    columnsWithExpiry:[
+      {key:'name', label:'الصنف'},
       {key:'supplier', label:'المورد'},
       {key:'balance', label:'الرصيد الحالي'},
       {key:'productionDate', label:'تاريخ الإنتاج'},
@@ -1104,9 +1104,15 @@ const CONFIGS = {
 
 let tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
 let selectedProdGroups = new Set(); // group keys currently selected — click rows to select them, then "تصدير Excel" exports only those orders
-let rawSubTab = 'all'; // 'all' | 'flavors' — sub-tab inside the "خامات" (raw materials) tab
+let rawSubTab = 'all'; // 'all' | a category name from RAW_SUBCATS — sub-tab inside the "خامات" (raw materials) tab
 
-/* ================= FLAVOR EXPIRY HELPERS ================= */
+const RAW_SUBCATS = [
+  {id:'طعوم', label:'الطعوم', addLabel:'إضافة طعم جديد'},
+  {id:'صبغه', label:'الصبغات', addLabel:'إضافة صبغة جديدة'},
+  {id:'base', label:'مواد أساسية (Base)', addLabel:'إضافة مادة أساسية جديدة'},
+];
+
+/* ================= FLAVOR/RAW-CATEGORY EXPIRY HELPERS ================= */
 function monthsBetween(fromISO, toISO){
   const a = new Date(fromISO), b = new Date(toISO);
   if(Number.isNaN(a.getTime())||Number.isNaN(b.getTime())) return null;
@@ -1124,8 +1130,8 @@ function expiryStatus(expiryDate){
   if(m !== null && m <= 3) return {label:'قريب من الانتهاء', cls:'pill-warn'};
   return {label:'سليم', cls:'pill-ok'};
 }
-function flavorItems(){
-  return DB.raw.filter(r => (r.category||'').trim()==='طعوم');
+function categoryItems(cat){
+  return DB.raw.filter(r => (r.category||'').trim()===cat);
 }
 
 function durationLabel(from,to){
@@ -1203,26 +1209,27 @@ function renderProductionSummary(){
 
 function renderGenericTab(tabId){
   const cfg = CONFIGS[tabId];
-  const list = (tabId==='raw' && rawSubTab==='flavors') ? DB.raw.filter(r=>(r.category||'').trim()==='طعوم') : DB[tabId];
+  const list = (tabId==='raw' && rawSubTab!=='all') ? categoryItems(rawSubTab) : DB[tabId];
 
   // sub-tabs + expiry alert banner (raw materials tab only)
   let subTabHtml = '';
   let flavorsAlertHtml = '';
   if(tabId==='raw'){
-    subTabHtml = `<div class="raw-subtabs" style="display:flex;gap:8px;margin-bottom:14px;">
-      <button class="btn btn-sm ${rawSubTab==='all'?'btn-primary':'btn-ghost'}" id="rawSubAll">كل الخامات</button>
-      <button class="btn btn-sm ${rawSubTab==='flavors'?'btn-primary':'btn-ghost'}" id="rawSubFlavors">الطعوم</button>
+    subTabHtml = `<div class="raw-subtabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <button class="btn btn-sm ${rawSubTab==='all'?'btn-primary':'btn-ghost'}" data-cat="all">كل الخامات</button>
+      ${RAW_SUBCATS.map(sc=>`<button class="btn btn-sm ${rawSubTab===sc.id?'btn-primary':'btn-ghost'}" data-cat="${esc(sc.id)}">${esc(sc.label)}</button>`).join('')}
     </div>`;
-    if(rawSubTab==='flavors'){
-      const flavors = flavorItems().map(r=>({...r, status:expiryStatus(r.expiryDate)}));
-      const expiredCount = flavors.filter(r=>r.status && r.status.cls==='pill-danger').length;
-      const nearCount = flavors.filter(r=>r.status && r.status.cls==='pill-warn').length;
+    if(rawSubTab!=='all'){
+      const items = categoryItems(rawSubTab).map(r=>({...r, status:expiryStatus(r.expiryDate)}));
+      const expiredCount = items.filter(r=>r.status && r.status.cls==='pill-danger').length;
+      const nearCount = items.filter(r=>r.status && r.status.cls==='pill-warn').length;
+      const catLabel = (RAW_SUBCATS.find(sc=>sc.id===rawSubTab)||{}).label || rawSubTab;
       if(expiredCount || nearCount){
         flavorsAlertHtml = `<div class="panel" style="padding:14px 18px;border-color:var(--warn);background:var(--warn-bg);margin-bottom:14px;display:flex;align-items:center;gap:10px;">
           ${svgIcon('alert')}
           <div>
-            <strong>تنبيه صلاحية الطعوم:</strong>
-            ${expiredCount? ` ${expiredCount} طعم منتهي الصلاحية` : ''}${(expiredCount&&nearCount)?' — ':''}${nearCount? ` ${nearCount} طعم هيخلص خلال ٣ شهور` : ''}
+            <strong>تنبيه صلاحية ${esc(catLabel)}:</strong>
+            ${expiredCount? ` ${expiredCount} صنف منتهي الصلاحية` : ''}${(expiredCount&&nearCount)?' — ':''}${nearCount? ` ${nearCount} صنف هيخلص خلال ٣ شهور` : ''}
           </div>
         </div>`;
       }
@@ -1231,7 +1238,7 @@ function renderGenericTab(tabId){
 
   // filter options for raw category / production order
   let filterHtml = '';
-  if(cfg.filterKey && !(tabId==='raw' && rawSubTab==='flavors')){
+  if(cfg.filterKey && !(tabId==='raw' && rawSubTab!=='all')){
     const rawVals = list.map(i=> (i[cfg.filterKey]||'').toString().trim());
     const hasBlank = rawVals.some(v=>!v);
     const opts = [...new Set(rawVals.filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
@@ -1251,8 +1258,9 @@ function renderGenericTab(tabId){
     </div>`;
   }
 
-  const addLabel = (tabId==='raw' && rawSubTab==='flavors') ? 'إضافة طعم جديد' : cfg.addLabel;
-  const panelTitle = (tabId==='raw' && rawSubTab==='flavors') ? 'الطعوم' : cfg.title;
+  const activeSubcat = (tabId==='raw' && rawSubTab!=='all') ? RAW_SUBCATS.find(sc=>sc.id===rawSubTab) : null;
+  const addLabel = activeSubcat ? activeSubcat.addLabel : cfg.addLabel;
+  const panelTitle = activeSubcat ? activeSubcat.label : cfg.title;
 
   let html = `
   ${tabId==='production' ? renderProductionSummary() : ''}
@@ -1282,7 +1290,7 @@ function renderGenericTab(tabId){
     tableState.search = e.target.value;
     renderTableRows(tabId);
   });
-  if(cfg.filterKey && !(tabId==='raw' && rawSubTab==='flavors')){
+  if(cfg.filterKey && !(tabId==='raw' && rawSubTab!=='all')){
     document.getElementById('filterBox').addEventListener('change',(e)=>{
       tableState.filter = e.target.value;
       renderTableRows(tabId);
@@ -1294,17 +1302,17 @@ function renderGenericTab(tabId){
     const clearBtn = document.getElementById('clearDates');
     if(clearBtn) clearBtn.addEventListener('click', ()=>{ tableState.fromDate=''; tableState.toDate=''; renderGenericTab(tabId); });
   }
-  document.getElementById('addBtn').addEventListener('click', ()=> openItemModal(tabId, null, (tabId==='raw' && rawSubTab==='flavors') ? {category:'طعوم'} : null));
+  document.getElementById('addBtn').addEventListener('click', ()=> openItemModal(tabId, null, activeSubcat ? {category:activeSubcat.id} : null));
   document.getElementById('exportBtn').addEventListener('click', ()=> exportToExcel(tabId));
   if(tabId==='production'){
     document.getElementById('printBtn').addEventListener('click', printProductionReport);
   }
   if(tabId==='raw'){
-    document.getElementById('rawSubAll').addEventListener('click', ()=>{
-      if(rawSubTab!=='all'){ rawSubTab='all'; tableState.search=''; tableState.filter=''; renderGenericTab(tabId); }
-    });
-    document.getElementById('rawSubFlavors').addEventListener('click', ()=>{
-      if(rawSubTab!=='flavors'){ rawSubTab='flavors'; tableState.search=''; tableState.filter=''; renderGenericTab(tabId); }
+    document.querySelectorAll('.raw-subtabs [data-cat]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const cat = btn.dataset.cat;
+        if(rawSubTab!==cat){ rawSubTab=cat; tableState.search=''; tableState.filter=''; renderGenericTab(tabId); }
+      });
     });
   }
 }
@@ -1326,7 +1334,7 @@ function exportToExcel(tabId){
   }
 
   if(!list.length){ showToast('لا يوجد بيانات لتصديرها'); return; }
-  const baseColumns = (tabId==='raw' && rawSubTab==='flavors' && cfg.columnsFlavors) ? cfg.columnsFlavors : cfg.columns;
+  const baseColumns = (tabId==='raw' && rawSubTab!=='all' && cfg.columnsWithExpiry) ? cfg.columnsWithExpiry : cfg.columns;
   const exportCols = baseColumns.filter(c=>c.key!=='adjust' && c.key!=='duration' && c.key!=='expiryStatus');
   const rows = list.map(item=>{
     const row = {};
@@ -1370,8 +1378,8 @@ function exportToExcel(tabId){
 function getFilteredList(tabId){
   const cfg = CONFIGS[tabId];
   let list = [...DB[tabId]];
-  if(tabId==='raw' && rawSubTab==='flavors'){
-    list = list.filter(item=> (item.category||'').trim()==='طعوم');
+  if(tabId==='raw' && rawSubTab!=='all'){
+    list = list.filter(item=> (item.category||'').trim()===rawSubTab);
   }
   if(tableState.search){
     const q = tableState.search.trim().toLowerCase();
@@ -1396,7 +1404,7 @@ function renderTableRows(tabId){
   const cfg = CONFIGS[tabId];
   const list = getFilteredList(tabId);
   const holder = document.getElementById('tableHolder');
-  const columns = (tabId==='raw' && rawSubTab==='flavors' && cfg.columnsFlavors) ? cfg.columnsFlavors : cfg.columns;
+  const columns = (tabId==='raw' && rawSubTab!=='all' && cfg.columnsWithExpiry) ? cfg.columnsWithExpiry : cfg.columns;
 
   if(!list.length){
     holder.innerHTML = `<div class="empty-state"><div class="big">∅</div>لا توجد نتائج مطابقة</div>`;
