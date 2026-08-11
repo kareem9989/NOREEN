@@ -502,6 +502,7 @@ tr.detail-row.dim td{color:var(--ink-soft);}
         </div>
       </div>
       <div class="topbar-right">
+        <div id="adminArea" style="display:flex;align-items:center;gap:8px;"></div>
         <div class="notif-wrap">
           <button class="notif-bell" id="notifBell" title="تنبيهات المخزون"><span class="notif-badge hidden" id="notifBadge"></span></button>
           <div class="notif-dropdown hidden" id="notifDropdown"></div>
@@ -621,14 +622,21 @@ const StorageAPI = (function(){
 function uid(){ return 'i' + Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
 
 function freshDB(){
+  const rawItems = SEED.raw.map(r=>({id:uid(), name:r.name, category:r.category, supplier:r.supplier, balance:r.balance, variant:'', barcode:'', notes:'', productionDate:'', expiryDate:'', history:[]}));
+  const rollItems = SEED.rolls.map(r=>({id:uid(), name:r.name, category:'رولات', supplier:'', balance:r.balance, variant:r.flavor||'', barcode:'', notes:'', productionDate:'', expiryDate:'', history:[]}));
+  const cartonItems = SEED_CARTONS.map(c=>({id:uid(), name:c.name, category:'كراتين', supplier:'', balance:c.balance||0, variant:c.size||'', barcode:c.barcode||'', notes:c.notes||'', productionDate:'', expiryDate:'', history:[]}));
   return {
-    settings:{ lowStockThreshold: 10 },
-    raw: SEED.raw.map(r=>({id:uid(), name:r.name, category:r.category, supplier:r.supplier, balance:r.balance, history:[]})),
-    rolls: SEED.rolls.map(r=>({id:uid(), name:r.name, flavor:r.flavor, balance:r.balance, history:[]})),
-    cartons: SEED_CARTONS.map(c=>({id:uid(), name:c.name, size:c.size, balance:c.balance||0, notes:c.notes||'', barcode:c.barcode||'', history:[]})),
+    settings:{ lowStockThreshold: 10, adminPassword:'admin123', orderSystemUrl:'https://amrentag.vercel.app/' },
+    raw: [...rawItems, ...rollItems, ...cartonItems],
     production: SEED.production.map(p=>({id:uid(), date:p.date, order:p.order, item:p.item, flavor:p.flavor, drums:p.drums, produced:p.produced, notes:p.notes||''})),
     waste: SEED.waste.map(w=>({id:uid(), date:w.date, item:w.item, wasteType:w.wasteType, qty:w.qty, reason:w.reason||''})),
-    breakdowns: SEED.breakdowns.map(b=>({id:uid(), date:b.date, description:b.description, from:b.from, to:b.to}))
+    breakdowns: SEED.breakdowns.map(b=>({id:uid(), date:b.date, description:b.description, from:b.from, to:b.to})),
+    purchases: [],
+    whManufacturing: [],
+    whPackaging: [],
+    whFinished: [],
+    transfers: [],
+    dispatches: []
   };
 }
 
@@ -637,9 +645,38 @@ async function loadDB(){
     const res = await StorageAPI.get(STORAGE_KEY, false);
     if(res && res.value){
       DB = JSON.parse(res.value);
-      if(!DB.settings) DB.settings = {lowStockThreshold:10};
-      if(!DB.cartons) DB.cartons = SEED_CARTONS.map(c=>({id:uid(), name:c.name, size:c.size, balance:c.balance||0, notes:c.notes||'', barcode:c.barcode||'', history:[]}));
-      else DB.cartons.forEach(c=>{ if(c.balance===undefined||c.balance===null) c.balance=0; if(!c.history) c.history=[]; });
+      if(!DB.settings) DB.settings = {lowStockThreshold:10, adminPassword:'admin123', orderSystemUrl:'https://amrentag.vercel.app/'};
+      if(!DB.settings.adminPassword) DB.settings.adminPassword = 'admin123';
+      if(!DB.settings.orderSystemUrl) DB.settings.orderSystemUrl = 'https://amrentag.vercel.app/';
+      if(!DB.raw) DB.raw = [];
+      DB.raw.forEach(r=>{
+        if(r.variant===undefined) r.variant='';
+        if(r.barcode===undefined) r.barcode='';
+        if(r.notes===undefined) r.notes='';
+        if(r.productionDate===undefined) r.productionDate='';
+        if(r.expiryDate===undefined) r.expiryDate='';
+        if(!r.history) r.history=[];
+      });
+      // one-time migration: fold legacy standalone "رولات"/"كراتين" tabs into مخزن الخامات
+      if(DB.rolls && Array.isArray(DB.rolls)){
+        DB.rolls.forEach(r=>{
+          DB.raw.push({id:r.id||uid(), name:r.name, category:'رولات', supplier:'', balance:r.balance||0, variant:r.flavor||'', barcode:'', notes:'', productionDate:'', expiryDate:'', history:r.history||[]});
+        });
+        delete DB.rolls;
+      }
+      if(DB.cartons && Array.isArray(DB.cartons)){
+        DB.cartons.forEach(c=>{
+          DB.raw.push({id:c.id||uid(), name:c.name, category:'كراتين', supplier:'', balance:c.balance||0, variant:c.size||'', barcode:c.barcode||'', notes:c.notes||'', productionDate:'', expiryDate:'', history:c.history||[]});
+        });
+        delete DB.cartons;
+      }
+      if(!DB.purchases) DB.purchases = [];
+      if(!DB.whManufacturing) DB.whManufacturing = [];
+      if(!DB.whPackaging) DB.whPackaging = [];
+      if(!DB.whFinished) DB.whFinished = [];
+      if(!DB.transfers) DB.transfers = [];
+      if(!DB.dispatches) DB.dispatches = [];
+      await persist(true);
       return;
     }
   }catch(e){ /* not found */ }
@@ -696,9 +733,13 @@ function showToast(msg){
 /* ================= NAV ================= */
 const TABS = [
   {id:'dashboard', label:'لوحة القيادة', ic:'dashboard'},
-  {id:'raw', label:'خامات', ic:'raw'},
-  {id:'rolls', label:'رولات', ic:'rolls'},
-  {id:'cartons', label:'كراتين', ic:'box'},
+  {id:'purchases', label:'المشتريات', ic:'download'},
+  {id:'raw', label:'مخزن الخامات', ic:'raw'},
+  {id:'whManufacturing', label:'مخزن التصنيع', ic:'production'},
+  {id:'whPackaging', label:'مخزن التعبئة والتغليف', ic:'box'},
+  {id:'whFinished', label:'مخزن الإنتاج التام', ic:'spark'},
+  {id:'transfers', label:'التحويلات المخزنية', ic:'history'},
+  {id:'customerOrders', label:'أوردرات العملاء', ic:'orders'},
   {id:'production', label:'الإنتاج اليومي', ic:'production'},
   {id:'orders', label:'الأوردرات', ic:'orders'},
   {id:'waste', label:'تقرير الهالك', ic:'waste'},
@@ -706,9 +747,13 @@ const TABS = [
 ];
 const TITLES = {
   dashboard:['لوحة القيادة','نظرة عامة على المخازن والإنتاج'],
-  raw:['الخامات','متابعة أرصدة خامات التصنيع وحركة الصرف والإضافة'],
-  rolls:['الرولات','متابعة أرصدة الرولات ومواد التغليف حسب النوع والطعم'],
-  cartons:['كراتين','كتالوج مقاسات الكراتين والباركود'],
+  purchases:['المشتريات','تسجيل مشتريات الخامات الواردة من الموردين'],
+  raw:['مخزن الخامات','كل حاجة بتدخل المصنع: خامات، رولات، كراتين، وأي فئة تانية — مقسّمة فئات فرعية'],
+  whManufacturing:['مخزن التصنيع','أرصدة الأصناف نصف المصنّعة داخل مرحلة التصنيع'],
+  whPackaging:['مخزن التعبئة والتغليف','أرصدة الأصناف بعد مرحلة التعبئة والتغليف'],
+  whFinished:['مخزن الإنتاج التام','أرصدة المنتج النهائي الجاهز'],
+  transfers:['التحويلات المخزنية','تسجيل كل تحويل بين المخازن بدل الورق: من مخزن إلى مخزن'],
+  customerOrders:['أوردرات العملاء','بتظهر هنا أول ما يتعمل أوردر في نظام الإنتاج — تحديث لحظي'],
   production:['الإنتاج اليومي','تسجيل أوردرات وكميات الإنتاج اليومية'],
   orders:['الأوردرات','الإنتاج مجمّعًا حسب كل عميل/أوردر'],
   waste:['تقرير الهالك','تسجيل الهالك اليومي وأسبابه'],
@@ -720,12 +765,16 @@ function renderNav(){
   nav.innerHTML = TABS.map(t=>{
     let count = '';
     if(t.id==='raw') count = DB.raw.length;
-    else if(t.id==='rolls') count = DB.rolls.length;
-    else if(t.id==='cartons') count = DB.cartons.length;
     else if(t.id==='production') count = DB.production.length;
     else if(t.id==='orders') count = new Set(DB.production.map(p=>p.order||'بدون أوردر')).size;
     else if(t.id==='waste') count = DB.waste.length;
     else if(t.id==='breakdowns') count = DB.breakdowns.length;
+    else if(t.id==='purchases') count = DB.purchases.length;
+    else if(t.id==='whManufacturing') count = DB.whManufacturing.length;
+    else if(t.id==='whPackaging') count = DB.whPackaging.length;
+    else if(t.id==='whFinished') count = DB.whFinished.length;
+    else if(t.id==='transfers') count = DB.transfers.length;
+    else if(t.id==='customerOrders') count = (typeof externalOrders!=='undefined' ? externalOrders.length : 0);
     return `<button class="nav-item ${currentTab===t.id?'active':''}" data-tab="${t.id}">
       ${svgIcon(t.ic)}<span>${t.label}</span>
       ${count!==''?`<span class="badge-count">${count}</span>`:''}
@@ -749,10 +798,8 @@ function setTab(tab){
 /* ================= DASHBOARD ================= */
 function lowStockItems(){
   const th = DB.settings.lowStockThreshold;
-  const rawLow = DB.raw.filter(r=>r.balance <= th).map(r=>({...r, kind:'خامة'}));
-  const rollsLow = DB.rolls.filter(r=>r.balance <= th).map(r=>({...r, kind:'رول'}));
-  const cartonsLow = DB.cartons.filter(c=>c.balance <= th).map(c=>({...c, kind:'كرتونة'}));
-  return [...rawLow, ...rollsLow, ...cartonsLow].sort((a,b)=>a.balance-b.balance);
+  const rawLow = DB.raw.filter(r=>r.balance <= th).map(r=>({...r, kind: (r.category&&r.category.trim())?r.category.trim():'خامة'}));
+  return rawLow.sort((a,b)=>a.balance-b.balance);
 }
 
 function totalMinutes(from,to){
@@ -853,9 +900,9 @@ function renderDashboard(){
     </div>
     <div class="stat-card">
       <div class="icon-wrap">${svgIcon('rolls')}</div>
-      <div class="label">إجمالي أصناف الرولات</div>
-      <div class="value">${DB.rolls.length}</div>
-      <div class="foot">صنف/طعم مسجل</div>
+      <div class="label">فئات فرعية داخل مخزن الخامات</div>
+      <div class="value">${new Set(DB.raw.map(r=>(r.category||'').trim()).filter(Boolean)).size}</div>
+      <div class="foot">مثل: طعوم، صبغه، رولات، كراتين...</div>
     </div>
     <div class="stat-card">
       <div class="icon-wrap ${low.length?'danger':'ok'}">${svgIcon('alert')}</div>
@@ -973,24 +1020,28 @@ function renderDashboard(){
 /* ================= GENERIC TABLE CONFIG ================= */
 const CONFIGS = {
   raw:{
-    title:'الخامات', addLabel:'إضافة خامة جديدة',
+    title:'مخزن الخامات', addLabel:'إضافة صنف جديد',
     fields:[
       {key:'name', label:'اسم الصنف', type:'text', required:true},
-      {key:'category', label:'النوع', type:'select', options:['base','طعوم','صبغه'], required:false},
+      {key:'category', label:'الفئة الفرعية', type:'datalist', listId:'categoryOptions', required:false},
       {key:'supplier', label:'المورد', type:'text', required:false},
       {key:'balance', label:'الرصيد الحالي', type:'number', required:true, step:'0.01'},
+      {key:'variant', label:'تفاصيل إضافية (طعم / مقاس...)', type:'text', required:false},
+      {key:'barcode', label:'الباركود', type:'text', required:false},
+      {key:'notes', label:'ملاحظات', type:'text', required:false},
       {key:'productionDate', label:'تاريخ الإنتاج', type:'date', required:false},
       {key:'expiryDate', label:'تاريخ الانتهاء', type:'date', required:false},
     ],
     columns:[
       {key:'name', label:'الصنف'},
-      {key:'category', label:'النوع'},
+      {key:'category', label:'الفئة'},
       {key:'supplier', label:'المورد'},
       {key:'balance', label:'الرصيد الحالي'},
       {key:'adjust', label:'صرف / إضافة'},
     ],
     columnsWithExpiry:[
       {key:'name', label:'الصنف'},
+      {key:'variant', label:'تفاصيل'},
       {key:'supplier', label:'المورد'},
       {key:'balance', label:'الرصيد الحالي'},
       {key:'productionDate', label:'تاريخ الإنتاج'},
@@ -998,7 +1049,7 @@ const CONFIGS = {
       {key:'expiryStatus', label:'الحالة'},
       {key:'adjust', label:'صرف / إضافة'},
     ],
-    searchKeys:['name','category','supplier'],
+    searchKeys:['name','category','supplier','variant','barcode','notes'],
     filterKey:'category',
   },
   rolls:{
@@ -1100,17 +1151,59 @@ const CONFIGS = {
     filterKey:null,
     dateKey:'date',
   },
+  whManufacturing:{
+    title:'مخزن التصنيع', addLabel:'إضافة صنف جديد لمخزن التصنيع',
+    fields:[
+      {key:'name', label:'اسم الصنف', type:'text', required:true},
+      {key:'balance', label:'الرصيد الحالي', type:'number', required:true, step:'0.01'},
+    ],
+    columns:[
+      {key:'name', label:'الصنف'},
+      {key:'balance', label:'الرصيد الحالي'},
+      {key:'adjust', label:'صرف / إضافة يدوي'},
+    ],
+    searchKeys:['name'],
+    filterKey:null,
+  },
+  whPackaging:{
+    title:'مخزن التعبئة والتغليف', addLabel:'إضافة صنف جديد لمخزن التعبئة والتغليف',
+    fields:[
+      {key:'name', label:'اسم الصنف', type:'text', required:true},
+      {key:'balance', label:'الرصيد الحالي', type:'number', required:true, step:'0.01'},
+    ],
+    columns:[
+      {key:'name', label:'الصنف'},
+      {key:'balance', label:'الرصيد الحالي'},
+      {key:'adjust', label:'صرف / إضافة يدوي'},
+    ],
+    searchKeys:['name'],
+    filterKey:null,
+  },
+  whFinished:{
+    title:'مخزن الإنتاج التام', addLabel:'إضافة صنف جديد لمخزن الإنتاج التام',
+    fields:[
+      {key:'name', label:'اسم الصنف', type:'text', required:true},
+      {key:'balance', label:'الرصيد الحالي', type:'number', required:true, step:'0.01'},
+    ],
+    columns:[
+      {key:'name', label:'الصنف'},
+      {key:'balance', label:'الرصيد الحالي'},
+      {key:'adjust', label:'صرف / إضافة يدوي'},
+    ],
+    searchKeys:['name'],
+    filterKey:null,
+  },
 };
 
 let tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
 let selectedProdGroups = new Set(); // group keys currently selected — click rows to select them, then "تصدير Excel" exports only those orders
 let rawSubTab = 'all'; // 'all' | a category name from RAW_SUBCATS — sub-tab inside the "خامات" (raw materials) tab
 
-const RAW_SUBCATS = [
-  {id:'طعوم', label:'الطعوم', addLabel:'إضافة طعم جديد'},
-  {id:'صبغه', label:'الصبغات', addLabel:'إضافة صبغة جديدة'},
-  {id:'base', label:'مواد أساسية (Base)', addLabel:'إضافة مادة أساسية جديدة'},
-];
+const RAW_SUBCATS = null; // deprecated — سُبكاتات الخامات بقت ديناميكية، استخدم getRawSubcats()
+function getRawSubcats(){
+  const cats = [...new Set(DB.raw.map(r=>(r.category||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+  return cats.map(c=>({id:c, label:c, addLabel:`إضافة صنف جديد لفئة "${c}"`}));
+}
 
 /* ================= FLAVOR/RAW-CATEGORY EXPIRY HELPERS ================= */
 function monthsBetween(fromISO, toISO){
@@ -1217,13 +1310,13 @@ function renderGenericTab(tabId){
   if(tabId==='raw'){
     subTabHtml = `<div class="raw-subtabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
       <button class="btn btn-sm ${rawSubTab==='all'?'btn-primary':'btn-ghost'}" data-cat="all">كل الخامات</button>
-      ${RAW_SUBCATS.map(sc=>`<button class="btn btn-sm ${rawSubTab===sc.id?'btn-primary':'btn-ghost'}" data-cat="${esc(sc.id)}">${esc(sc.label)}</button>`).join('')}
+      ${getRawSubcats().map(sc=>`<button class="btn btn-sm ${rawSubTab===sc.id?'btn-primary':'btn-ghost'}" data-cat="${esc(sc.id)}">${esc(sc.label)}</button>`).join('')}
     </div>`;
     if(rawSubTab!=='all'){
       const items = categoryItems(rawSubTab).map(r=>({...r, status:expiryStatus(r.expiryDate)}));
       const expiredCount = items.filter(r=>r.status && r.status.cls==='pill-danger').length;
       const nearCount = items.filter(r=>r.status && r.status.cls==='pill-warn').length;
-      const catLabel = (RAW_SUBCATS.find(sc=>sc.id===rawSubTab)||{}).label || rawSubTab;
+      const catLabel = (getRawSubcats().find(sc=>sc.id===rawSubTab)||{}).label || rawSubTab;
       if(expiredCount || nearCount){
         flavorsAlertHtml = `<div class="panel" style="padding:14px 18px;border-color:var(--warn);background:var(--warn-bg);margin-bottom:14px;display:flex;align-items:center;gap:10px;">
           ${svgIcon('alert')}
@@ -1258,7 +1351,7 @@ function renderGenericTab(tabId){
     </div>`;
   }
 
-  const activeSubcat = (tabId==='raw' && rawSubTab!=='all') ? RAW_SUBCATS.find(sc=>sc.id===rawSubTab) : null;
+  const activeSubcat = (tabId==='raw' && rawSubTab!=='all') ? getRawSubcats().find(sc=>sc.id===rawSubTab) : null;
   const addLabel = activeSubcat ? activeSubcat.addLabel : cfg.addLabel;
   const panelTitle = activeSubcat ? activeSubcat.label : cfg.title;
 
@@ -1449,7 +1542,7 @@ function renderTableRows(tabId){
       }
       return `<td>${esc(item[col.key]) || '<span class="muted">—</span>'}</td>`;
     }).join('');
-    const hasHistory = (tabId==='raw' || tabId==='rolls' || tabId==='cartons');
+    const hasHistory = (tabId==='raw' || tabId==='rolls' || tabId==='cartons' || tabId==='whManufacturing' || tabId==='whPackaging' || tabId==='whFinished');
     return `<tr data-id="${item.id}">
       ${cells}
       <td>
@@ -1484,7 +1577,21 @@ function renderTableRows(tabId){
     const amt = Number(input.value);
     if(!amt || amt<=0){ showToast('اكتب كمية صحيحة أولاً'); return; }
     const item = DB[tabId].find(i=>i.id===id);
-    const sign = b.dataset.act==='plus' ? 1 : -1;
+    const isMinus = b.dataset.act==='minus';
+    const prevTabId = WH_PREV_TABID[tabId];
+
+    if(isMinus && prevTabId){
+      // بدل ما الكمية المصروفة تختفي، بترجع تلقائي لنفس الصنف في المخزن اللي قبله في السلسلة
+      item.balance = Math.round((item.balance - amt)*100)/100;
+      cascadeReturnToPrev(tabId, item, amt);
+      await persist();
+      renderTableRows(tabId);
+      renderNav();
+      showToast(`تم إرجاع ${fmtNum(amt)} من "${item.name}" تلقائي لـ ${TITLES[prevTabId][0]}`);
+      return;
+    }
+
+    const sign = isMinus ? -1 : 1;
     item.balance = Math.round((item.balance + sign*amt)*100)/100;
     item.history = item.history || [];
     item.history.push({date: todayISO(), type: sign>0?'اضافه':'صرف', qty: amt});
@@ -1691,12 +1798,22 @@ function printProductionReport(){
 function confirmDelete(tabId, id){
   const item = DB[tabId].find(i=>i.id===id);
   const name = item.name || item.description || 'هذا العنصر';
-  openConfirmModal(`هل تريد حذف "${esc(name)}"؟ لا يمكن التراجع عن هذا الإجراء.`, async ()=>{
+  const prevTabId = WH_PREV_TABID[tabId];
+  const hasBalance = prevTabId && Number(item.balance||0) > 0;
+  const msg = hasBalance
+    ? `هل تريد حذف "${esc(name)}"؟ الرصيد المتبقي (${fmtNum(item.balance)}) هيرجع تلقائي لـ ${TITLES[prevTabId][0]} قبل الحذف.`
+    : `هل تريد حذف "${esc(name)}"؟ لا يمكن التراجع عن هذا الإجراء.`;
+  openConfirmModal(msg, async ()=>{
+    if(hasBalance){
+      const qty = Number(item.balance);
+      item.balance = 0;
+      cascadeReturnToPrev(tabId, item, qty, `إرجاع رصيد متبقي قبل حذف الصنف من ${TITLES[tabId][0]}`);
+    }
     DB[tabId] = DB[tabId].filter(i=>i.id!==id);
     await persist();
     renderTableRows(tabId);
     renderNav();
-    showToast('تم الحذف');
+    showToast(hasBalance ? 'تم الحذف وإرجاع الرصيد المتبقي تلقائي' : 'تم الحذف');
   });
 }
 
@@ -1720,6 +1837,10 @@ function openItemModal(tabId, item, presetVals){
         <option value="">— اختر —</option>
         ${f.options.map(o=>`<option value="${esc(o)}" ${v===o?'selected':''}>${esc(o)}</option>`).join('')}
       </select>`;
+    } else if(f.type==='datalist'){
+      const existing = [...new Set(DB.raw.map(r=>(r.category||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+      inputHtml = `<input type="text" id="${id}" value="${esc(v)}" list="${f.listId}" placeholder="اكتب فئة موجودة أو فئة جديدة">
+        <datalist id="${f.listId}">${existing.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`;
     } else if(f.type==='number'){
       inputHtml = `<input type="number" step="${f.step||'1'}" id="${id}" value="${esc(v)}">`;
     } else if(f.type==='date'){
@@ -1767,7 +1888,7 @@ function openItemModal(tabId, item, presetVals){
       Object.assign(item, newData);
     } else {
       const rec = {id: uid(), ...newData};
-      if(tabId==='raw' || tabId==='rolls') rec.history = [];
+      if(tabId==='raw' || tabId==='rolls' || tabId==='whManufacturing' || tabId==='whPackaging' || tabId==='whFinished') rec.history = [];
       DB[tabId].unshift(rec);
     }
     await persist();
@@ -1807,7 +1928,7 @@ function closeDrawer(){
 
 function openHistoryDrawer(tabId, item){
   const history = [...(item.history||[])].sort((a,b)=> (b.date||'').localeCompare(a.date||''));
-  const totalIn = (item.history||[]).filter(h=>h.type==='اضافه').reduce((s,h)=>s+Number(h.qty||0),0);
+  const totalIn = (item.history||[]).filter(h=>h.type==='اضافه'||h.type==='شراء').reduce((s,h)=>s+Number(h.qty||0),0);
   const totalOut = (item.history||[]).filter(h=>h.type==='صرف').reduce((s,h)=>s+Number(h.qty||0),0);
 
   document.getElementById('drawerRoot').innerHTML = `
@@ -1839,11 +1960,11 @@ function openHistoryDrawer(tabId, item){
         <div class="timeline">
           ${history.map(h=>`
             <div class="timeline-item">
-              <div class="timeline-dot ${h.type==='اضافه'?'in':'out'}"></div>
+              <div class="timeline-dot ${(h.type==='اضافه'||h.type==='شراء')?'in':'out'}"></div>
               <div class="timeline-content">
                 <div class="row1">
-                  <span>${h.type==='اضافه'?'إضافة':'صرف'} ${fmtNum(h.qty)}</span>
-                  <span style="color:${h.type==='اضافه'?'var(--ok)':'var(--danger)'}">${h.type==='اضافه'?'+':'−'}${fmtNum(h.qty)}</span>
+                  <span>${h.type==='اضافه'?'إضافة':(h.type==='شراء'?'شراء':(h.type==='مرتجع'?'مرتجع':'صرف'))} ${fmtNum(h.qty)}${h.notes?' — '+esc(h.notes):''}</span>
+                  <span style="color:${(h.type==='اضافه'||h.type==='شراء')?'var(--ok)':'var(--danger)'}">${(h.type==='اضافه'||h.type==='شراء')?'+':'−'}${fmtNum(h.qty)}</span>
                 </div>
                 <div class="date">${fmtDateAr(h.date)}</div>
               </div>
@@ -1917,12 +2038,330 @@ function renderOrdersTab(){
 }
 let ordersState = { selected:null };
 
+/* ================= PURCHASES + WAREHOUSE TRANSFERS ================= */
+const WH_DEFS = [
+  {id:'raw', label:'مخزن الخامات'},
+  {id:'manufacturing', label:'مخزن التصنيع'},
+  {id:'packaging', label:'مخزن التعبئة والتغليف'},
+  {id:'finished', label:'مخزن الإنتاج التام'},
+];
+function whArray(whId){
+  if(whId==='raw') return DB.raw;
+  if(whId==='manufacturing') return DB.whManufacturing;
+  if(whId==='packaging') return DB.whPackaging;
+  if(whId==='finished') return DB.whFinished;
+  return [];
+}
+function whLabel(whId){ const w = WH_DEFS.find(w=>w.id===whId); return w ? w.label : (whId||'—'); }
+
+// سلسلة المخازن: كل مخزن عارف مين المخزن اللي قبله عشان أي كمية تتشال منه ترجع تلقائي بدل ما تختفي
+const TABID_TO_WHID = { raw:'raw', whManufacturing:'manufacturing', whPackaging:'packaging', whFinished:'finished' };
+const WH_PREV_TABID = { whManufacturing:'raw', whPackaging:'whManufacturing', whFinished:'whPackaging' };
+
+// بيسجل تحويل تلقائي بيرجع كمية "qty" من صنف tabId/item لنفس الصنف (بالاسم) في المخزن اللي قبله في السلسلة
+function cascadeReturnToPrev(tabId, item, qty, note){
+  const prevTabId = WH_PREV_TABID[tabId];
+  if(!prevTabId || !(qty>0)) return;
+  const date = todayISO();
+  const transferId = uid();
+  item.history = item.history || [];
+  item.history.push({date, type:'صرف', qty, notes: note || `إرجاع تلقائي لـ ${TITLES[prevTabId][0]}`, refId: transferId});
+
+  const prevArr = DB[prevTabId];
+  let prevItem = prevArr.find(i=>i.name.trim()===item.name.trim());
+  if(!prevItem){
+    prevItem = {id:uid(), name:item.name, balance:0, history:[]};
+    if(prevTabId==='raw'){ prevItem.category = item.category || ''; prevItem.supplier = ''; prevItem.variant=''; prevItem.barcode=''; prevItem.notes=''; prevItem.productionDate=''; prevItem.expiryDate=''; }
+    prevArr.unshift(prevItem);
+  }
+  prevItem.balance = Math.round((prevItem.balance + qty)*100)/100;
+  prevItem.history = prevItem.history || [];
+  prevItem.history.push({date, type:'اضافه', qty, notes: note || `راجع تلقائي من ${TITLES[tabId][0]}`, refId: transferId});
+
+  DB.transfers.unshift({
+    id:transferId, date, fromWarehouse:TABID_TO_WHID[tabId], toWarehouse:TABID_TO_WHID[prevTabId], notes: note || 'إرجاع تلقائي',
+    lines:[{fromItemId:item.id, fromItemName:item.name, fromQty:qty, toItemId:prevItem.id, toItemName:prevItem.name, toQty:qty}]
+  });
+}
+
+function renderPurchasesTab(){
+  const list = [...DB.purchases].sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  let html = `
+  <div class="panel">
+    <div class="panel-head">
+      <h2>المشتريات <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
+      <div class="toolbar">
+        <button class="btn btn-ghost" id="addReturnBtn">+ تسجيل مرتجع</button>
+        <button class="btn btn-gold" id="addPurchaseBtn">+ تسجيل مشترى جديد</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      ${list.length? `
+      <div class="table-wrap"><table>
+        <thead><tr><th>التاريخ</th><th>النوع</th><th>الخامة</th><th>الكمية</th><th>المورد</th><th>ملاحظات</th><th></th></tr></thead>
+        <tbody>
+        ${list.map(p=>{
+          const isReturn = p.kind==='return';
+          return `
+          <tr data-id="${p.id}">
+            <td>${fmtDateAr(p.date)}</td>
+            <td><span class="pill ${isReturn?'pill-danger':'pill-ok'}">${isReturn?'مرتجع':'شراء'}</span></td>
+            <td style="font-weight:700">${esc(p.itemName)}</td>
+            <td class="num" style="color:${isReturn?'var(--danger)':'var(--ok)'}">${isReturn?'−':'+'}${fmtNum(p.qty)}</td>
+            <td>${p.supplier?esc(p.supplier):'<span class="muted">—</span>'}</td>
+            <td class="muted">${p.notes?esc(p.notes):'—'}</td>
+            <td><button class="icon-btn danger" data-act="delete" data-id="${p.id}" title="حذف">${svgIcon('trash','sm')}</button></td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state">${svgIcon('download')}<div>لا يوجد مشتريات مسجلة بعد</div></div>`}
+    </div>
+  </div>`;
+  document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
+  document.getElementById('addPurchaseBtn').addEventListener('click', ()=>openPurchaseModal('purchase'));
+  document.getElementById('addReturnBtn').addEventListener('click', ()=>openPurchaseModal('return'));
+  document.querySelectorAll('[data-act="delete"]').forEach(b=>b.addEventListener('click', ()=>{
+    const p = DB.purchases.find(x=>x.id===b.dataset.id);
+    const isReturn = p && p.kind==='return';
+    const msg = isReturn
+      ? 'هل تريد حذف سجل هذا المرتجع؟ هترجع الكمية تلقائي لرصيد الخامة زي ما كانت قبل المرتجع.'
+      : 'هل تريد حذف سجل هذا الشراء؟ هيترجع رصيد الخامة تلقائي زي ما كان قبل الشراء.';
+    openConfirmModal(msg, async ()=>{
+      if(p){
+        const item = DB.raw.find(r=>r.id===p.itemId) || DB.raw.find(r=>r.name.trim()===p.itemName);
+        if(item){
+          const sign = isReturn ? 1 : -1; // مرتجع كان نقص من الرصيد، فحذفه يرجّعه بالزيادة، والعكس للشراء
+          item.balance = Math.round((item.balance + sign*p.qty)*100)/100;
+          item.history = (item.history||[]).filter(h=>h.refId!==p.id);
+        }
+      }
+      DB.purchases = DB.purchases.filter(x=>x.id!==b.dataset.id);
+      await persist();
+      renderPurchasesTab();
+      renderNav();
+      showToast('تم حذف السجل وترجيع الرصيد');
+    });
+  }));
+}
+
+function openPurchaseModal(kind){
+  kind = kind || 'purchase';
+  const isReturn = kind==='return';
+  const rawNames = [...new Set(DB.raw.map(r=>r.name))].sort((a,b)=>a.localeCompare(b,'ar'));
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay">
+      <div class="modal">
+        <div class="modal-head"><h3>${isReturn?'تسجيل مرتجع':'تسجيل مشترى جديد'}</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-body">
+          <div class="field"><label>اسم الخامة *</label>
+            <input type="text" id="f_item" list="rawNamesList" placeholder="${isReturn?'اختار اسم خامة موجودة':'اكتب اسم خامة موجودة أو خامة جديدة'}">
+            <datalist id="rawNamesList">${rawNames.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+          </div>
+          <div class="field"><label>الكمية *</label><input type="number" step="0.01" id="f_qty"></div>
+          <div class="field"><label>${isReturn?'المرتجع لـ (المورد)':'المورد'}</label><input type="text" id="f_supplier"></div>
+          <div class="field"><label>التاريخ *</label><input type="date" id="f_date" value="${todayISO()}"></div>
+          <div class="field"><label>${isReturn?'سبب المرتجع':'ملاحظات'}</label><input type="text" id="f_notes" placeholder="${isReturn?'مثال: خامة تالفة / مخالفة للمواصفات':''}"></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
+          <button class="btn btn-primary" id="saveBtn">حفظ</button>
+        </div>
+      </div>
+    </div>`;
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const itemName = document.getElementById('f_item').value.trim();
+    const qty = Number(document.getElementById('f_qty').value);
+    const supplier = document.getElementById('f_supplier').value.trim();
+    const date = document.getElementById('f_date').value || todayISO();
+    const notes = document.getElementById('f_notes').value.trim();
+    if(!itemName || !qty || qty<=0){ showToast('اكتب اسم الخامة وكمية صحيحة'); return; }
+    let item = DB.raw.find(r=>r.name.trim()===itemName);
+    if(!item){
+      if(isReturn){ showToast('الخامة دي مش موجودة في مخزن الخامات أصلاً'); return; }
+      item = {id:uid(), name:itemName, category:'', supplier:supplier||'', balance:0, history:[]};
+      DB.raw.unshift(item);
+    }
+    const recId = uid();
+    const sign = isReturn ? -1 : 1;
+    item.balance = Math.round((item.balance + sign*qty)*100)/100;
+    item.history = item.history || [];
+    item.history.push({date, type: isReturn?'مرتجع':'شراء', qty, notes: supplier?`${isReturn?'مرتجع لـ':'مورد:'} ${supplier}${notes?' — '+notes:''}`:notes, refId: recId});
+    DB.purchases.unshift({id:recId, date, itemId:item.id, itemName: item.name, qty, supplier, notes, kind});
+    await persist();
+    closeModal();
+    renderPurchasesTab();
+    renderNav();
+    showToast(isReturn ? 'تم تسجيل المرتجع وتحديث رصيد الخامة' : 'تم تسجيل الشراء وتحديث رصيد الخامة في مخزن الخامات');
+  });
+}
+
+function renderTransfersTab(){
+  const list = [...DB.transfers].sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  let html = `
+  <div class="panel">
+    <div class="panel-head">
+      <h2>التحويلات المخزنية <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
+      <div class="toolbar"><button class="btn btn-gold" id="addTransferBtn">+ تحويل جديد</button></div>
+    </div>
+    <div class="panel-body">
+      ${list.length? `
+      <div class="table-wrap"><table>
+        <thead><tr><th>التاريخ</th><th>من مخزن</th><th>إلى مخزن</th><th>الصنف</th><th>الكمية</th><th>ملاحظات</th><th></th></tr></thead>
+        <tbody>
+        ${list.map(t=>{
+          // backward-compat: بعض السجلات القديمة كانت بصيغة "lines" فيها أكتر من صنف — نعرضهم مجمّعين في نفس الصف
+          const lines = (t.lines && t.lines.length) ? t.lines : [{fromItemName:t.fromItemName, fromQty:t.fromQty, toItemName:t.toItemName, toQty:t.toQty}];
+          const itemLabel = lines.map(ln=> ln.fromItemName===ln.toItemName ? esc(ln.fromItemName) : `${esc(ln.fromItemName)} ← ${esc(ln.toItemName)}`).join('<br>');
+          const qtyLabel = lines.map(ln=> fmtNum(ln.fromQty)).join('<br>');
+          return `
+          <tr data-id="${t.id}">
+            <td>${fmtDateAr(t.date)}</td>
+            <td><span class="pill pill-navy">${esc(whLabel(t.fromWarehouse))}</span></td>
+            <td><span class="pill pill-navy">${esc(whLabel(t.toWarehouse))}</span></td>
+            <td style="font-weight:700">${itemLabel}</td>
+            <td class="num">${qtyLabel}</td>
+            <td class="muted">${t.notes?esc(t.notes):'—'}</td>
+            <td><button class="icon-btn danger" data-act="delete" data-id="${t.id}" title="حذف">${svgIcon('trash','sm')}</button></td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state">${svgIcon('history')}<div>لا يوجد تحويلات مسجلة بعد</div></div>`}
+    </div>
+  </div>`;
+  document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
+  document.getElementById('addTransferBtn').addEventListener('click', ()=>openTransferModal());
+  document.querySelectorAll('[data-act="delete"]').forEach(b=>b.addEventListener('click', ()=>{
+    openConfirmModal('هل تريد حذف سجل هذا التحويل؟ هترجع الأرصدة تلقائي زي ما كانت قبل التحويل.', async ()=>{
+      const t = DB.transfers.find(x=>x.id===b.dataset.id);
+      if(t){
+        const lines = (t.lines && t.lines.length) ? t.lines : [{fromItemId:t.fromItemId, fromItemName:t.fromItemName, fromQty:t.fromQty, toItemId:t.toItemId, toItemName:t.toItemName, toQty:t.toQty}];
+        const fromArr = whArray(t.fromWarehouse);
+        const toArr = whArray(t.toWarehouse);
+        lines.forEach(ln=>{
+          const fromItem = fromArr.find(i=>i.id===ln.fromItemId) || fromArr.find(i=>i.name.trim()===ln.fromItemName);
+          if(fromItem){
+            fromItem.balance = Math.round((fromItem.balance + Number(ln.fromQty||0))*100)/100;
+            fromItem.history = (fromItem.history||[]).filter(h=>h.refId!==t.id);
+          }
+          const toItem = toArr.find(i=>i.id===ln.toItemId) || toArr.find(i=>i.name.trim()===ln.toItemName);
+          if(toItem){
+            toItem.balance = Math.round((toItem.balance - Number(ln.toQty||0))*100)/100;
+            toItem.history = (toItem.history||[]).filter(h=>h.refId!==t.id);
+          }
+        });
+      }
+      DB.transfers = DB.transfers.filter(x=>x.id!==b.dataset.id);
+      await persist();
+      renderTransfersTab();
+      renderNav();
+      showToast('تم حذف السجل وترجيع الأرصدة');
+    });
+  }));
+}
+
+function openTransferModal(prefill){
+  prefill = prefill || {};
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay">
+      <div class="modal">
+        <div class="modal-head"><h3>تحويل مخزني</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-body">
+          <div class="field"><label>من مخزن *</label>
+            <select id="f_fromWh">
+              <option value="">— اختر —</option>
+              ${WH_DEFS.filter(w=>w.id!=='finished').map(w=>`<option value="${w.id}" ${prefill.fromWh===w.id?'selected':''}>${esc(w.label)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>الصنف *</label><select id="f_fromItem"><option value="">اختر المخزن أولاً</option></select></div>
+          <div class="field"><label>الكمية *</label><input type="number" step="0.01" id="f_qty" placeholder="0"></div>
+          <div class="field"><label>إلى مخزن *</label>
+            <select id="f_toWh">
+              <option value="">— اختر —</option>
+              ${WH_DEFS.filter(w=>w.id!=='raw').map(w=>`<option value="${w.id}" ${prefill.toWh===w.id?'selected':''}>${esc(w.label)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>التاريخ</label><input type="date" id="f_date" value="${todayISO()}"></div>
+          <div class="field"><label>ملاحظات (اختياري)</label><input type="text" id="f_notes" placeholder="مثال: هالك راجع من التعبئة للتصنيع"></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
+          <button class="btn btn-primary" id="saveBtn">حفظ</button>
+        </div>
+      </div>
+    </div>`;
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+
+  const fromWhSel = document.getElementById('f_fromWh');
+  const fromItemSel = document.getElementById('f_fromItem');
+  function refillFromItems(){
+    const arr = whArray(fromWhSel.value);
+    fromItemSel.innerHTML = `<option value="">${fromWhSel.value? '— اختر الصنف —' : 'اختر المخزن أولاً'}</option>` +
+      arr.map(it=>`<option value="${it.id}">${esc(it.name)} (رصيد: ${fmtNum(it.balance)})</option>`).join('');
+  }
+  fromWhSel.addEventListener('change', refillFromItems);
+  refillFromItems();
+  if(prefill.fromItemId) fromItemSel.value = prefill.fromItemId;
+
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const date = document.getElementById('f_date').value || todayISO();
+    const fromWh = fromWhSel.value;
+    const fromItemId = fromItemSel.value;
+    const qty = Number(document.getElementById('f_qty').value);
+    const toWh = document.getElementById('f_toWh').value;
+    const notes = document.getElementById('f_notes').value.trim();
+
+    if(!fromWh || !fromItemId){ showToast('اختر مخزن المصدر والصنف'); return; }
+    if(!qty || qty<=0){ showToast('اكتب كمية صحيحة'); return; }
+    if(!toWh){ showToast('اختر مخزن الوجهة'); return; }
+
+    const fromArr = whArray(fromWh);
+    const fromItem = fromArr.find(i=>i.id===fromItemId);
+    if(!fromItem){ showToast('الصنف غير موجود'); return; }
+    const transferId = uid();
+    fromItem.balance = Math.round((fromItem.balance - qty)*100)/100;
+    fromItem.history = fromItem.history || [];
+    fromItem.history.push({date, type:'صرف', qty, notes:`تحويل إلى ${whLabel(toWh)}${notes?' — '+notes:''}`, refId: transferId});
+
+    // نفس اسم الصنف بيتنقل تلقائي للمخزن التاني (نفس المنطق: بدل الورق، مفيش داعي تكتب الاسم تاني)
+    const toArr = whArray(toWh);
+    let toItem = toArr.find(i=>i.name.trim()===fromItem.name.trim());
+    if(!toItem){
+      toItem = {id:uid(), name:fromItem.name, balance:0, history:[]};
+      toArr.unshift(toItem);
+    }
+    toItem.balance = Math.round((toItem.balance + qty)*100)/100;
+    toItem.history = toItem.history || [];
+    toItem.history.push({date, type:'اضافه', qty, notes:`تحويل من ${whLabel(fromWh)}${notes?' — '+notes:''}`, refId: transferId});
+
+    DB.transfers.unshift({
+      id:transferId, date, fromWarehouse:fromWh, toWarehouse:toWh, notes,
+      lines:[{fromItemId:fromItem.id, fromItemName:fromItem.name, fromQty:qty, toItemId:toItem.id, toItemName:toItem.name, toQty:qty}]
+    });
+
+    await persist();
+    closeModal();
+    renderTransfersTab();
+    renderNav();
+    showToast('تم تسجيل التحويل وتحديث الأرصدة');
+  });
+}
+
 /* ================= ROUTER ================= */
 function renderContent(){
   tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
   selectedProdGroups.clear();
   if(currentTab==='dashboard') renderDashboard();
   else if(currentTab==='orders') renderOrdersTab();
+  else if(currentTab==='purchases') renderPurchasesTab();
+  else if(currentTab==='transfers') renderTransfersTab();
+  else if(currentTab==='customerOrders') renderExternalOrdersTab();
   else renderGenericTab(currentTab);
 }
 
@@ -1983,8 +2422,8 @@ function renderNotifDropdown(low){
     <div class="notif-dd-head">أصناف تحت حد الأمان (${low.length})</div>
     <div class="notif-dd-list">
       ${low.map(it=>`
-        <button class="notif-dd-item" data-kind="${it.kind==='خامة'?'raw':(it.kind==='رول'?'rolls':'cartons')}">
-          <span class="notif-dd-name">${esc(it.name)}${it.flavor?` — ${esc(it.flavor)}`:''}</span>
+        <button class="notif-dd-item" data-kind="raw">
+          <span class="notif-dd-name">${esc(it.name)}${it.kind?` — ${esc(it.kind)}`:''}</span>
           <span class="notif-dd-bal">${fmtNum(it.balance)}</span>
         </button>`).join('')}
     </div>
@@ -2016,6 +2455,316 @@ function initNotifBell(){
   });
 }
 
+/* ================= ADMIN LOGIN (بوابة استخدام بسيطة — مش حماية أمنية حقيقية) ================= */
+let isAdmin = false;
+
+function renderAdminArea(){
+  const area = document.getElementById('adminArea');
+  if(!area) return;
+  if(isAdmin){
+    area.innerHTML = `
+      <button class="btn btn-ghost btn-sm" id="adminSettingsBtn" title="إعدادات الأدمن">${svgIcon('edit','sm')} إعدادات</button>
+      <button class="btn btn-ghost btn-sm" id="adminLogoutBtn">خروج (أدمن)</button>`;
+    document.getElementById('adminSettingsBtn').addEventListener('click', openAdminSettingsModal);
+    document.getElementById('adminLogoutBtn').addEventListener('click', ()=>{
+      isAdmin = false;
+      renderAdminArea();
+      if(currentTab==='customerOrders') renderExternalOrdersTab();
+      showToast('تم الخروج من وضع الأدمن');
+    });
+  } else {
+    area.innerHTML = `<button class="btn btn-ghost btn-sm" id="adminLoginBtn">دخول الأدمن</button>`;
+    document.getElementById('adminLoginBtn').addEventListener('click', openAdminLoginModal);
+  }
+}
+
+function openAdminLoginModal(){
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay">
+      <div class="modal">
+        <div class="modal-head"><h3>دخول الأدمن</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-body">
+          <div class="field"><label>كلمة السر</label><input type="password" id="f_pass" placeholder="اكتب كلمة سر الأدمن"></div>
+          <div class="muted" style="font-size:12px;">ده حماية استخدام بسيطة لتحديد مين يقدر يفتح نظام إنشاء الأوردرات — مش تشفير أمني كامل.</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
+          <button class="btn btn-primary" id="loginBtn">دخول</button>
+        </div>
+      </div>
+    </div>`;
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  const passInput = document.getElementById('f_pass');
+  const tryLogin = ()=>{
+    const pass = passInput.value;
+    if(pass === (DB.settings.adminPassword || 'admin123')){
+      isAdmin = true;
+      closeModal();
+      renderAdminArea();
+      if(currentTab==='customerOrders') renderExternalOrdersTab();
+      showToast('تم الدخول كأدمن');
+    } else {
+      showToast('كلمة السر غلط');
+    }
+  };
+  document.getElementById('loginBtn').addEventListener('click', tryLogin);
+  passInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') tryLogin(); });
+  passInput.focus();
+}
+
+function openAdminSettingsModal(){
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay">
+      <div class="modal">
+        <div class="modal-head"><h3>إعدادات الأدمن</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-body">
+          <div class="field"><label>لينك نظام إنشاء الأوردرات</label>
+            <input type="text" id="f_url" value="${esc(DB.settings.orderSystemUrl||'')}" placeholder="https://...">
+          </div>
+          <div class="field"><label>تغيير كلمة سر الأدمن</label>
+            <input type="password" id="f_newpass" placeholder="اسيبها فاضية لو مش هتغيّرها">
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
+          <button class="btn btn-primary" id="saveBtn">حفظ</button>
+        </div>
+      </div>
+    </div>`;
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const url = document.getElementById('f_url').value.trim();
+    const newPass = document.getElementById('f_newpass').value;
+    DB.settings.orderSystemUrl = url;
+    if(newPass) DB.settings.adminPassword = newPass;
+    await persist();
+    closeModal();
+    if(currentTab==='customerOrders') renderExternalOrdersTab();
+    showToast('تم حفظ الإعدادات');
+  });
+}
+
+/* ================= أوردرات العملاء (مزامنة لحظية مع نظام إنشاء الأوردرات عبر Firestore) ================= */
+let externalOrders = (typeof window!=='undefined' && window.externalOrders) ? window.externalOrders : [];
+
+function findDispatch(orderId){
+  return DB.dispatches.find(d=>d.orderId===orderId);
+}
+
+function renderExternalOrdersTab(){
+  const list = [...(externalOrders||[])].sort((a,b)=> (b.savedAt||'').localeCompare(a.savedAt||''));
+  let html = `
+  <div class="panel">
+    <div class="panel-head">
+      <h2>أوردرات العملاء <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
+      <div class="toolbar">
+        ${isAdmin
+          ? `<button class="btn btn-gold" id="openOrderSystemBtn">فتح نظام إنشاء الأوردرات ↗</button>`
+          : `<span class="muted" style="font-size:12.5px">سجّل دخول كأدمن (فوق) عشان تقدر تفتح نظام إنشاء الأوردرات وتسجّل الصرف</span>`}
+      </div>
+    </div>
+    <div class="panel-body">
+      ${list.length? `
+      <div class="table-wrap"><table>
+        <thead><tr><th>رقم الأوردر</th><th>العميل</th><th>السيلز</th><th>تاريخ الأوردر</th><th>تاريخ التسليم</th><th>إجمالي الإنتاج (كجم)</th><th>حالة الصرف</th><th></th></tr></thead>
+        <tbody>
+        ${list.map(o=>{
+          const dispatched = findDispatch(o.id);
+          return `
+          <tr data-id="${esc(o.id)}">
+            <td style="font-weight:700">${esc(o.ono||'—')}</td>
+            <td>${esc(o.cust||'—')}</td>
+            <td>${esc(o.sales||'—')}</td>
+            <td>${fmtDateAr(o.dt)}</td>
+            <td>${fmtDateAr(o.due)}</td>
+            <td class="num">${fmtNum((Number(o.totalProd)||0)/1000)}</td>
+            <td>${dispatched? '<span class="pill pill-ok">تم الصرف ✓</span>' : '<span class="pill pill-warn">لسه متصرفش</span>'}</td>
+            <td><button class="btn btn-sm btn-ghost" data-act="detail" data-id="${esc(o.id)}">التفاصيل</button></td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state">${svgIcon('orders')}<div>لسه مفيش أوردرات — أول أوردر يتعمل في نظام الإنتاج هيظهر هنا تلقائي لحظيًا</div></div>`}
+    </div>
+  </div>`;
+  document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
+  document.querySelectorAll('[data-act="detail"]').forEach(b=>b.addEventListener('click', ()=> openExternalOrderDetail(b.dataset.id)));
+  const openBtn = document.getElementById('openOrderSystemBtn');
+  if(openBtn){
+    openBtn.addEventListener('click', ()=>{
+      const url = (DB.settings && DB.settings.orderSystemUrl) || '';
+      if(!url){ showToast('محتاج تحط لينك نظام الأوردرات الأول من زرار "إعدادات" فوق'); return; }
+      window.open(url, '_blank');
+    });
+  }
+}
+
+function openExternalOrderDetail(orderId){
+  const o = (externalOrders||[]).find(x=>x.id===orderId);
+  if(!o){ showToast('الأوردر ده مش موجود دلوقتي'); return; }
+  const rows = o.rows || [];
+  const dispatch = findDispatch(orderId);
+  document.getElementById('drawerRoot').innerHTML = `
+    <div class="drawer-overlay" id="drawerOverlay"></div>
+    <div class="drawer">
+      <div class="drawer-head">
+        <div>
+          <h3>أوردر ${esc(o.ono||'—')} — ${esc(o.cust||'—')}</h3>
+          <div class="sub">السيلز: ${esc(o.sales||'—')} · تاريخ الأوردر: ${fmtDateAr(o.dt)} · التسليم: ${fmtDateAr(o.due)}</div>
+        </div>
+        <button class="modal-close" id="drawerClose">✕</button>
+      </div>
+      <div class="drawer-body">
+        <div class="cards-grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:18px;">
+          <div class="stat-card" style="padding:12px 14px;">
+            <div class="label">إجمالي الإنتاج</div>
+            <div class="value" style="font-size:19px;">${fmtNum((Number(o.totalProd)||0)/1000)} كجم</div>
+          </div>
+          <div class="stat-card" style="padding:12px 14px;">
+            <div class="label">أصناف بستيكر</div>
+            <div class="value" style="font-size:19px;">${fmtNum(o.totalStk||0)}</div>
+          </div>
+          <div class="stat-card" style="padding:12px 14px;">
+            <div class="label">عدد بنود الأوردر</div>
+            <div class="value" style="font-size:19px;">${rows.length}</div>
+          </div>
+        </div>
+        ${isAdmin ? `
+        <div class="panel" style="padding:14px 16px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div>
+            <strong>الصرف من مخزن الإنتاج التام</strong>
+            <div class="muted" style="font-size:12.5px;">${dispatch? `تم الصرف بتاريخ ${fmtDateAr(dispatch.date)}` : 'لسه الأوردر ده متأثرش على أرصدة المخازن'}</div>
+          </div>
+          ${dispatch
+            ? `<button class="btn btn-ghost btn-sm" id="undoDispatchBtn">تراجع عن الصرف</button>`
+            : `<button class="btn btn-gold btn-sm" id="doDispatchBtn">تسجيل صرف لهذا الأوردر</button>`}
+        </div>` : ''}
+        ${rows.length? `
+        <div class="table-wrap"><table>
+          <thead><tr><th>المنتج</th><th>خط الإنتاج</th><th>وزن الحبة (جم)</th><th>عدد بالوحدة</th><th>وحدات/كرتونة</th><th>عدد الكراتين</th><th>بستيكر</th><th>ملاحظات</th></tr></thead>
+          <tbody>
+          ${rows.map(r=>`
+            <tr>
+              <td style="font-weight:700">${esc(r.d||'—')}</td>
+              <td><span class="pill pill-navy">${esc(r.line||'—')}</span></td>
+              <td class="num">${fmtNum(r.g)}</td>
+              <td class="num">${fmtNum(r.s)}</td>
+              <td class="num">${fmtNum(r.u)}</td>
+              <td class="num">${fmtNum(r.q)}</td>
+              <td>${r.so? '<span class="pill pill-ok">بستيكر</span>' : '<span class="muted">بدون</span>'}</td>
+              <td class="muted">${r.n?esc(r.n):'—'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>` : `<div class="empty-state">لا يوجد بنود في هذا الأوردر</div>`}
+      </div>
+    </div>`;
+  document.getElementById('drawerOverlay').addEventListener('click', closeDrawer);
+  document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+  const doBtn = document.getElementById('doDispatchBtn');
+  if(doBtn) doBtn.addEventListener('click', ()=> openDispatchModal(o));
+  const undoBtn = document.getElementById('undoDispatchBtn');
+  if(undoBtn) undoBtn.addEventListener('click', ()=>{
+    openConfirmModal('هل تريد التراجع عن صرف هذا الأوردر؟ الكميات هترجع لرصيد مخزن الإنتاج التام.', async ()=>{
+      const d = findDispatch(o.id);
+      if(d){
+        d.lines.forEach(ln=>{
+          const item = DB.whFinished.find(i=>i.id===ln.itemId) || DB.whFinished.find(i=>i.name.trim()===ln.itemName);
+          if(item){
+            item.balance = Math.round((item.balance + Number(ln.qty||0))*100)/100;
+            item.history = (item.history||[]).filter(h=>h.refId!==d.id+'_'+ln.itemId);
+          }
+        });
+        DB.dispatches = DB.dispatches.filter(x=>x.id!==d.id);
+      }
+      await persist();
+      renderNav();
+      openExternalOrderDetail(o.id);
+      showToast('تم التراجع عن الصرف وترجيع الأرصدة');
+    });
+  });
+}
+
+function openDispatchModal(order){
+  if(!isAdmin){ showToast('لازم تسجل دخول كأدمن الأول'); return; }
+  if(findDispatch(order.id)){ showToast('الأوردر ده اتصرف بالفعل'); return; }
+  const rows = order.rows || [];
+  const finishedNames = [...new Set(DB.whFinished.map(i=>i.name))].sort((a,b)=>a.localeCompare(b,'ar'));
+
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay">
+      <div class="modal" style="max-width:560px;max-height:85vh;overflow-y:auto;">
+        <div class="modal-head"><h3>تسجيل صرف أوردر ${esc(order.ono||'')} من مخزن الإنتاج التام</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-body">
+          <div class="muted" style="font-size:12.5px;margin-bottom:12px;">راجع اسم الصنف والكمية لكل بند قبل الحفظ — الكمية المقترحة = عدد الوحدات × عدد الكراتين.</div>
+          ${rows.map((r,idx)=>{
+            const suggestedQty = (Number(r.u)||0)*(Number(r.q)||0);
+            const matched = DB.whFinished.find(i=>i.name.trim()===String(r.d||'').trim());
+            return `
+            <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;">
+              <div style="font-weight:700;margin-bottom:8px;">${esc(r.d||'بند بدون اسم')}</div>
+              <div class="field"><label>الصنف في مخزن الإنتاج التام *</label>
+                <input type="text" data-dispatch-field="itemName" data-idx="${idx}" value="${esc(matched?matched.name:(r.d||''))}" list="finList_${idx}">
+                <datalist id="finList_${idx}">${finishedNames.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+              </div>
+              <div class="field"><label>الكمية *</label><input type="number" step="0.01" data-dispatch-field="qty" data-idx="${idx}" value="${suggestedQty||''}"></div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
+          <button class="btn btn-primary" id="saveBtn">حفظ الصرف</button>
+        </div>
+      </div>
+    </div>`;
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const lines = rows.map((r, idx)=>{
+      const nameInput = document.querySelector(`[data-dispatch-field="itemName"][data-idx="${idx}"]`);
+      const qtyInput = document.querySelector(`[data-dispatch-field="qty"][data-idx="${idx}"]`);
+      return { productName: r.d, itemName: (nameInput.value||'').trim(), qty: Number(qtyInput.value) };
+    }).filter(ln=> ln.itemName && ln.qty>0);
+
+    if(!lines.length){ showToast('محتاج بند واحد صحيح على الأقل (اسم صنف وكمية)'); return; }
+
+    const dispatchId = uid();
+    const date = todayISO();
+    const savedLines = [];
+    lines.forEach(ln=>{
+      let item = DB.whFinished.find(i=>i.name.trim()===ln.itemName);
+      if(!item){
+        item = {id:uid(), name:ln.itemName, balance:0, history:[]};
+        DB.whFinished.unshift(item);
+      }
+      item.balance = Math.round((item.balance - ln.qty)*100)/100;
+      item.history = item.history || [];
+      item.history.push({date, type:'صرف', qty:ln.qty, notes:`صرف لأوردر ${order.ono||''} — العميل ${order.cust||''}`, refId: dispatchId+'_'+item.id});
+      savedLines.push({productName: ln.productName, itemId:item.id, itemName:item.name, qty:ln.qty});
+    });
+
+    DB.dispatches.unshift({id:dispatchId, orderId:order.id, ono:order.ono||'', cust:order.cust||'', date, lines:savedLines});
+    await persist();
+    closeModal();
+    renderNav();
+    openExternalOrderDetail(order.id);
+    showToast('تم تسجيل الصرف وتحديث رصيد مخزن الإنتاج التام');
+  });
+}
+
+window.addEventListener('external-orders-updated', (e)=>{
+  externalOrders = e.detail || [];
+  renderNav();
+  if(typeof currentTab!=='undefined' && currentTab==='customerOrders') renderExternalOrdersTab();
+});
+
 /* ================= BOOT ================= */
 async function boot(){
   await loadTheme();
@@ -2023,6 +2772,7 @@ async function boot(){
   await loadDB();
   renderNav();
   renderContent();
+  renderAdminArea();
   initNotifBell();
   updateNotifBell();
   document.getElementById('loading').classList.add('hidden');
@@ -2034,6 +2784,36 @@ document.getElementById('menuToggle').addEventListener('click', ()=>{
 });
 
 boot();
+</script>
+<script type="module">
+  // نفس مشروع Firebase بتاع نظام "إنشاء الأوردرات" — قراءة لحظية بس، من غير ما نلمس بيانات مخزن التخزين المحلي بتاعنا
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, collection, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAuGlShJj1aG1oaoDkLvN-1QsnwWSMWliM",
+    authDomain: "amrentag-fd022.firebaseapp.com",
+    projectId: "amrentag-fd022",
+    storageBucket: "amrentag-fd022.firebasestorage.app",
+    messagingSenderId: "720577868280",
+    appId: "1:720577868280:web:19f4d6d219207b35a1e60d"
+  };
+
+  try{
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const q = query(collection(db, 'production_orders'), orderBy('savedAt', 'desc'));
+    onSnapshot(q, (snap)=>{
+      const orders = [];
+      snap.forEach(docSnap=> orders.push(Object.assign({id: docSnap.id}, docSnap.data())));
+      window.externalOrders = orders;
+      window.dispatchEvent(new CustomEvent('external-orders-updated', {detail: orders}));
+    }, (err)=>{
+      console.error('external orders sync failed:', err);
+    });
+  }catch(e){
+    console.error('firebase init (customer orders sync) failed:', e);
+  }
 </script>
 </body>
 </html>
