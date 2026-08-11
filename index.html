@@ -636,7 +636,8 @@ function freshDB(){
     whPackaging: [],
     whFinished: [],
     transfers: [],
-    dispatches: []
+    dispatches: [],
+    importedOrders: []
   };
 }
 
@@ -676,6 +677,7 @@ async function loadDB(){
       if(!DB.whFinished) DB.whFinished = [];
       if(!DB.transfers) DB.transfers = [];
       if(!DB.dispatches) DB.dispatches = [];
+      if(!DB.importedOrders) DB.importedOrders = [];
       await persist(true);
       return;
     }
@@ -2560,35 +2562,40 @@ function findDispatch(orderId){
 }
 
 function renderExternalOrdersTab(){
-  const list = [...(externalOrders||[])].sort((a,b)=> (b.savedAt||'').localeCompare(a.savedAt||''));
+  const importedIds = new Set((DB.importedOrders||[]).map(o=>o.id));
+  const liveOnly = (externalOrders||[]).filter(o=> !importedIds.has(o.id));
+  const list = [...liveOnly, ...(DB.importedOrders||[])].sort((a,b)=> (b.savedAt||'').localeCompare(a.savedAt||''));
   const errorBanner = externalOrdersSyncError ? `
     <div class="panel" style="padding:14px 18px;border-color:var(--danger);background:var(--danger-bg,#fef2f2);margin-bottom:14px;">
-      <strong>${svgIcon('alert')} فشل الاتصال بنظام الأوردرات:</strong>
+      <strong>${svgIcon('alert')} فشل الاتصال اللحظي بنظام الأوردرات:</strong>
       <div style="font-family:monospace;font-size:12.5px;margin-top:6px;direction:ltr;text-align:left;color:var(--danger);">${esc(externalOrdersSyncError)}</div>
-      <div class="muted" style="font-size:12.5px;margin-top:8px;">لو الرسالة فيها "permission" أو "insufficient" — المشكلة في صلاحيات القراءة (Security Rules) بتاعة قاعدة بيانات نظام الأوردرات، محتاج تتظبط من هناك.</div>
+      <div class="muted" style="font-size:12.5px;margin-top:8px;">لحد ما تتظبط، استخدم "استيراد أوردرات (JSON)" جنب زرار الأدمن كحل بديل مضمون.</div>
     </div>` : '';
   const statusLine = externalOrdersSyncError
-    ? `<span style="color:var(--danger);">🔴 مقطوع الاتصال</span>`
-    : (externalOrdersConnected ? `<span style="color:var(--ok);">🟢 متصل بقاعدة بيانات نظام الأوردرات — استلمنا ${list.length} أوردر</span>` : `<span class="muted">⏳ بيحاول يتصل...</span>`);
+    ? `<span style="color:var(--danger);">🔴 مقطوع الاتصال اللحظي</span>`
+    : (externalOrdersConnected ? `<span style="color:var(--ok);">🟢 متصل بقاعدة بيانات نظام الأوردرات لحظيًا</span>` : `<span class="muted">⏳ بيحاول يتصل لحظيًا...</span>`);
   let html = `
   ${errorBanner}
   <div class="panel">
     <div class="panel-head">
       <h2>أوردرات العملاء <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
       <div class="toolbar">
-        ${isAdmin
-          ? `<button class="btn btn-gold" id="openOrderSystemBtn">فتح نظام إنشاء الأوردرات ↗</button>`
-          : `<span class="muted" style="font-size:12.5px">سجّل دخول كأدمن (فوق) عشان تقدر تفتح نظام إنشاء الأوردرات وتسجّل الصرف</span>`}
+        ${isAdmin ? `
+          <input type="file" id="importOrdersFile" accept="application/json" style="display:none;">
+          <button class="btn btn-ghost" id="importOrdersBtn">⬆ استيراد أوردرات (JSON)</button>
+          <button class="btn btn-gold" id="openOrderSystemBtn">فتح نظام إنشاء الأوردرات ↗</button>
+        ` : `<span class="muted" style="font-size:12.5px">سجّل دخول كأدمن (فوق) عشان تقدر تفتح نظام إنشاء الأوردرات أو تستورد أوردرات</span>`}
       </div>
     </div>
     <div class="panel-body">
-      <div style="font-size:12.5px;margin-bottom:14px;">${statusLine}</div>
+      <div style="font-size:12.5px;margin-bottom:14px;">${statusLine}${DB.importedOrders && DB.importedOrders.length ? ` · <span class="muted">${DB.importedOrders.length} أوردر متستوردين يدوي</span>`:''}</div>
       ${list.length? `
       <div class="table-wrap"><table>
-        <thead><tr><th>رقم الأوردر</th><th>العميل</th><th>السيلز</th><th>تاريخ الأوردر</th><th>تاريخ التسليم</th><th>إجمالي الإنتاج (كجم)</th><th>حالة الصرف</th><th></th></tr></thead>
+        <thead><tr><th>رقم الأوردر</th><th>العميل</th><th>السيلز</th><th>تاريخ الأوردر</th><th>تاريخ التسليم</th><th>إجمالي الإنتاج (كجم)</th><th>حالة الصرف</th><th>المصدر</th><th></th></tr></thead>
         <tbody>
         ${list.map(o=>{
           const dispatched = findDispatch(o.id);
+          const isImported = importedIds.has(o.id);
           return `
           <tr data-id="${esc(o.id)}">
             <td style="font-weight:700">${esc(o.ono||'—')}</td>
@@ -2598,11 +2605,12 @@ function renderExternalOrdersTab(){
             <td>${fmtDateAr(o.due)}</td>
             <td class="num">${fmtNum((Number(o.totalProd)||0)/1000)}</td>
             <td>${dispatched? '<span class="pill pill-ok">تم الصرف ✓</span>' : '<span class="pill pill-warn">لسه متصرفش</span>'}</td>
+            <td>${isImported? '<span class="pill pill-navy">مستورد</span>' : '<span class="pill pill-ok">لحظي</span>'}</td>
             <td><button class="btn btn-sm btn-ghost" data-act="detail" data-id="${esc(o.id)}">التفاصيل</button></td>
           </tr>`;
         }).join('')}
         </tbody>
-      </table></div>` : `<div class="empty-state">${svgIcon('orders')}<div>${externalOrdersSyncError? 'مقدرش أوصل لنظام الأوردرات — شوف رسالة الخطأ فوق' : (externalOrdersConnected? 'متصلين بنجاح بس قاعدة البيانات فاضية فعلاً — جرب تعمل أوردر تجريبي في نظام الإنتاج وشوف يظهر هنا ولا لأ' : 'لسه مفيش أوردرات — أول أوردر يتعمل في نظام الإنتاج هيظهر هنا تلقائي لحظيًا')}</div></div>`}
+      </table></div>` : `<div class="empty-state">${svgIcon('orders')}<div>${externalOrdersSyncError? 'مفيش أوردرات لسه — استورد ملف JSON أو استنى الاتصال اللحظي يتظبط' : (externalOrdersConnected? 'متصلين بنجاح بس قاعدة البيانات فاضية فعلاً — جرب تعمل أوردر تجريبي في نظام الإنتاج وشوف يظهر هنا ولا لأ' : 'لسه مفيش أوردرات — أول أوردر يتعمل في نظام الإنتاج هيظهر هنا تلقائي لحظيًا')}</div></div>`}
     </div>
   </div>`;
   document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
@@ -2615,10 +2623,43 @@ function renderExternalOrdersTab(){
       window.open(url, '_blank');
     });
   }
+  const importBtn = document.getElementById('importOrdersBtn');
+  const importFile = document.getElementById('importOrdersFile');
+  if(importBtn && importFile){
+    importBtn.addEventListener('click', ()=> importFile.click());
+    importFile.addEventListener('change', (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = async (ev)=>{
+        try{
+          const data = JSON.parse(ev.target.result);
+          const arr = Array.isArray(data) ? data : [data];
+          if(!arr.length){ showToast('الملف فاضي، مفيش أوردرات فيه'); return; }
+          if(!DB.importedOrders) DB.importedOrders = [];
+          let addedCount = 0, updatedCount = 0;
+          arr.forEach(o=>{
+            if(!o || !o.id) return;
+            const idx = DB.importedOrders.findIndex(x=>x.id===o.id);
+            if(idx>=0){ DB.importedOrders[idx] = o; updatedCount++; }
+            else { DB.importedOrders.push(o); addedCount++; }
+          });
+          await persist();
+          renderNav();
+          renderExternalOrdersTab();
+          showToast(`تم الاستيراد: ${addedCount} أوردر جديد${updatedCount? `، ${updatedCount} اتحدّث`:''}`);
+        }catch(err){
+          showToast('الملف مش JSON صحيح — تأكد إنك مصدّره من نظام الأوردرات نفسه');
+        }
+        importFile.value = '';
+      };
+      reader.readAsText(file);
+    });
+  }
 }
 
 function openExternalOrderDetail(orderId){
-  const o = (externalOrders||[]).find(x=>x.id===orderId);
+  const o = (externalOrders||[]).find(x=>x.id===orderId) || (DB.importedOrders||[]).find(x=>x.id===orderId);
   if(!o){ showToast('الأوردر ده مش موجود دلوقتي'); return; }
   const rows = o.rows || [];
   const dispatch = findDispatch(orderId);
