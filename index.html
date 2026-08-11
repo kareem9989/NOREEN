@@ -755,7 +755,7 @@ const TITLES = {
   whPackaging:['مخزن التعبئة والتغليف','أرصدة الأصناف بعد مرحلة التعبئة والتغليف'],
   whFinished:['مخزن الإنتاج التام','أرصدة المنتج النهائي الجاهز'],
   transfers:['التحويلات المخزنية','تسجيل كل تحويل بين المخازن بدل الورق: من مخزن إلى مخزن'],
-  customerOrders:['أوردرات العملاء','بتظهر هنا أول ما يتعمل أوردر في نظام الإنتاج — تحديث لحظي'],
+  customerOrders:['أوردرات العملاء','استورد ملف JSON من نظام إنشاء الأوردرات عشان تشوفهم هنا'],
   production:['الإنتاج اليومي','تسجيل أوردرات وكميات الإنتاج اليومية'],
   orders:['الأوردرات','الإنتاج مجمّعًا حسب كل عميل/أوردر'],
   waste:['تقرير الهالك','تسجيل الهالك اليومي وأسبابه'],
@@ -776,7 +776,7 @@ function renderNav(){
     else if(t.id==='whPackaging') count = DB.whPackaging.length;
     else if(t.id==='whFinished') count = DB.whFinished.length;
     else if(t.id==='transfers') count = DB.transfers.length;
-    else if(t.id==='customerOrders') count = (typeof externalOrders!=='undefined' ? externalOrders.length : 0);
+    else if(t.id==='customerOrders') count = (DB.importedOrders||[]).length;
     return `<button class="nav-item ${currentTab===t.id?'active':''}" data-tab="${t.id}">
       ${svgIcon(t.ic)}<span>${t.label}</span>
       ${count!==''?`<span class="badge-count">${count}</span>`:''}
@@ -2552,30 +2552,14 @@ function openAdminSettingsModal(){
   });
 }
 
-/* ================= أوردرات العملاء (مزامنة لحظية مع نظام إنشاء الأوردرات عبر Firestore) ================= */
-let externalOrders = (typeof window!=='undefined' && window.externalOrders) ? window.externalOrders : [];
-let externalOrdersSyncError = null;
-let externalOrdersConnected = false; // بيبقى true أول ما نستلم أي رد من Firestore (حتى لو صفر مستندات) — يفرّق بين "لسه ما اتصلناش" و"اتصلنا ومفيش بيانات"
-
+/* ================= أوردرات العملاء (استيراد/تصدير JSON من نظام إنشاء الأوردرات) ================= */
 function findDispatch(orderId){
   return DB.dispatches.find(d=>d.orderId===orderId);
 }
 
 function renderExternalOrdersTab(){
-  const importedIds = new Set((DB.importedOrders||[]).map(o=>o.id));
-  const liveOnly = (externalOrders||[]).filter(o=> !importedIds.has(o.id));
-  const list = [...liveOnly, ...(DB.importedOrders||[])].sort((a,b)=> (b.savedAt||'').localeCompare(a.savedAt||''));
-  const errorBanner = externalOrdersSyncError ? `
-    <div class="panel" style="padding:14px 18px;border-color:var(--danger);background:var(--danger-bg,#fef2f2);margin-bottom:14px;">
-      <strong>${svgIcon('alert')} فشل الاتصال اللحظي بنظام الأوردرات:</strong>
-      <div style="font-family:monospace;font-size:12.5px;margin-top:6px;direction:ltr;text-align:left;color:var(--danger);">${esc(externalOrdersSyncError)}</div>
-      <div class="muted" style="font-size:12.5px;margin-top:8px;">لحد ما تتظبط، استخدم "استيراد أوردرات (JSON)" جنب زرار الأدمن كحل بديل مضمون.</div>
-    </div>` : '';
-  const statusLine = externalOrdersSyncError
-    ? `<span style="color:var(--danger);">🔴 مقطوع الاتصال اللحظي</span>`
-    : (externalOrdersConnected ? `<span style="color:var(--ok);">🟢 متصل بقاعدة بيانات نظام الأوردرات لحظيًا</span>` : `<span class="muted">⏳ بيحاول يتصل لحظيًا...</span>`);
+  const list = [...(DB.importedOrders||[])].sort((a,b)=> (b.savedAt||'').localeCompare(a.savedAt||''));
   let html = `
-  ${errorBanner}
   <div class="panel">
     <div class="panel-head">
       <h2>أوردرات العملاء <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
@@ -2588,14 +2572,12 @@ function renderExternalOrdersTab(){
       </div>
     </div>
     <div class="panel-body">
-      <div style="font-size:12.5px;margin-bottom:14px;">${statusLine}${DB.importedOrders && DB.importedOrders.length ? ` · <span class="muted">${DB.importedOrders.length} أوردر متستوردين يدوي</span>`:''}</div>
       ${list.length? `
       <div class="table-wrap"><table>
-        <thead><tr><th>رقم الأوردر</th><th>العميل</th><th>السيلز</th><th>تاريخ الأوردر</th><th>تاريخ التسليم</th><th>إجمالي الإنتاج (كجم)</th><th>حالة الصرف</th><th>المصدر</th><th></th></tr></thead>
+        <thead><tr><th>رقم الأوردر</th><th>العميل</th><th>السيلز</th><th>تاريخ الأوردر</th><th>تاريخ التسليم</th><th>إجمالي الإنتاج (كجم)</th><th>حالة الصرف</th><th></th></tr></thead>
         <tbody>
         ${list.map(o=>{
           const dispatched = findDispatch(o.id);
-          const isImported = importedIds.has(o.id);
           return `
           <tr data-id="${esc(o.id)}">
             <td style="font-weight:700">${esc(o.ono||'—')}</td>
@@ -2605,12 +2587,11 @@ function renderExternalOrdersTab(){
             <td>${fmtDateAr(o.due)}</td>
             <td class="num">${fmtNum((Number(o.totalProd)||0)/1000)}</td>
             <td>${dispatched? '<span class="pill pill-ok">تم الصرف ✓</span>' : '<span class="pill pill-warn">لسه متصرفش</span>'}</td>
-            <td>${isImported? '<span class="pill pill-navy">مستورد</span>' : '<span class="pill pill-ok">لحظي</span>'}</td>
             <td><button class="btn btn-sm btn-ghost" data-act="detail" data-id="${esc(o.id)}">التفاصيل</button></td>
           </tr>`;
         }).join('')}
         </tbody>
-      </table></div>` : `<div class="empty-state">${svgIcon('orders')}<div>${externalOrdersSyncError? 'مفيش أوردرات لسه — استورد ملف JSON أو استنى الاتصال اللحظي يتظبط' : (externalOrdersConnected? 'متصلين بنجاح بس قاعدة البيانات فاضية فعلاً — جرب تعمل أوردر تجريبي في نظام الإنتاج وشوف يظهر هنا ولا لأ' : 'لسه مفيش أوردرات — أول أوردر يتعمل في نظام الإنتاج هيظهر هنا تلقائي لحظيًا')}</div></div>`}
+      </table></div>` : `<div class="empty-state">${svgIcon('orders')}<div>لسه مفيش أوردرات مستوردة — صدّر ملف من نظام الإنتاج واستورده هنا</div></div>`}
     </div>
   </div>`;
   document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
@@ -2659,7 +2640,7 @@ function renderExternalOrdersTab(){
 }
 
 function openExternalOrderDetail(orderId){
-  const o = (externalOrders||[]).find(x=>x.id===orderId) || (DB.importedOrders||[]).find(x=>x.id===orderId);
+  const o = (DB.importedOrders||[]).find(x=>x.id===orderId);
   if(!o){ showToast('الأوردر ده مش موجود دلوقتي'); return; }
   const rows = o.rows || [];
   const dispatch = findDispatch(orderId);
@@ -2813,18 +2794,6 @@ function openDispatchModal(order){
   });
 }
 
-window.addEventListener('external-orders-updated', (e)=>{
-  externalOrders = e.detail || [];
-  externalOrdersSyncError = null;
-  externalOrdersConnected = true;
-  renderNav();
-  if(typeof currentTab!=='undefined' && currentTab==='customerOrders') renderExternalOrdersTab();
-});
-window.addEventListener('external-orders-sync-error', (e)=>{
-  externalOrdersSyncError = e.detail || 'حصل خطأ غير معروف أثناء الاتصال';
-  if(typeof currentTab!=='undefined' && currentTab==='customerOrders') renderExternalOrdersTab();
-});
-
 /* ================= BOOT ================= */
 async function boot(){
   await loadTheme();
@@ -2844,38 +2813,6 @@ document.getElementById('menuToggle').addEventListener('click', ()=>{
 });
 
 boot();
-</script>
-<script type="module">
-  // نفس مشروع Firebase بتاع نظام "إنشاء الأوردرات" — قراءة لحظية بس، من غير ما نلمس بيانات مخزن التخزين المحلي بتاعنا
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-  const firebaseConfig = {
-    apiKey: "AIzaSyAuGlShJj1aG1oaoDkLvN-1QsnwWSMWliM",
-    authDomain: "amrentag-fd022.firebaseapp.com",
-    projectId: "amrentag-fd022",
-    storageBucket: "amrentag-fd022.firebasestorage.app",
-    messagingSenderId: "720577868280",
-    appId: "1:720577868280:web:19f4d6d219207b35a1e60d"
-  };
-
-  try{
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    // من غير orderBy عشان أي مستند ناقصه حقل "savedAt" ميتستبعدش من النتيجة — الترتيب بيتم في الواجهة بعد الاستلام
-    onSnapshot(collection(db, 'production_orders'), (snap)=>{
-      const orders = [];
-      snap.forEach(docSnap=> orders.push(Object.assign({id: docSnap.id}, docSnap.data())));
-      window.externalOrders = orders;
-      window.dispatchEvent(new CustomEvent('external-orders-updated', {detail: orders}));
-    }, (err)=>{
-      console.error('external orders sync failed:', err);
-      window.dispatchEvent(new CustomEvent('external-orders-sync-error', {detail: (err && err.message) ? err.message : String(err)}));
-    });
-  }catch(e){
-    console.error('firebase init (customer orders sync) failed:', e);
-    window.dispatchEvent(new CustomEvent('external-orders-sync-error', {detail: (e && e.message) ? e.message : String(e)}));
-  }
 </script>
 </body>
 </html>
