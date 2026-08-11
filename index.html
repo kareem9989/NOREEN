@@ -2552,6 +2552,8 @@ function openAdminSettingsModal(){
 
 /* ================= أوردرات العملاء (مزامنة لحظية مع نظام إنشاء الأوردرات عبر Firestore) ================= */
 let externalOrders = (typeof window!=='undefined' && window.externalOrders) ? window.externalOrders : [];
+let externalOrdersSyncError = null;
+let externalOrdersConnected = false; // بيبقى true أول ما نستلم أي رد من Firestore (حتى لو صفر مستندات) — يفرّق بين "لسه ما اتصلناش" و"اتصلنا ومفيش بيانات"
 
 function findDispatch(orderId){
   return DB.dispatches.find(d=>d.orderId===orderId);
@@ -2559,7 +2561,17 @@ function findDispatch(orderId){
 
 function renderExternalOrdersTab(){
   const list = [...(externalOrders||[])].sort((a,b)=> (b.savedAt||'').localeCompare(a.savedAt||''));
+  const errorBanner = externalOrdersSyncError ? `
+    <div class="panel" style="padding:14px 18px;border-color:var(--danger);background:var(--danger-bg,#fef2f2);margin-bottom:14px;">
+      <strong>${svgIcon('alert')} فشل الاتصال بنظام الأوردرات:</strong>
+      <div style="font-family:monospace;font-size:12.5px;margin-top:6px;direction:ltr;text-align:left;color:var(--danger);">${esc(externalOrdersSyncError)}</div>
+      <div class="muted" style="font-size:12.5px;margin-top:8px;">لو الرسالة فيها "permission" أو "insufficient" — المشكلة في صلاحيات القراءة (Security Rules) بتاعة قاعدة بيانات نظام الأوردرات، محتاج تتظبط من هناك.</div>
+    </div>` : '';
+  const statusLine = externalOrdersSyncError
+    ? `<span style="color:var(--danger);">🔴 مقطوع الاتصال</span>`
+    : (externalOrdersConnected ? `<span style="color:var(--ok);">🟢 متصل بقاعدة بيانات نظام الأوردرات — استلمنا ${list.length} أوردر</span>` : `<span class="muted">⏳ بيحاول يتصل...</span>`);
   let html = `
+  ${errorBanner}
   <div class="panel">
     <div class="panel-head">
       <h2>أوردرات العملاء <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
@@ -2570,6 +2582,7 @@ function renderExternalOrdersTab(){
       </div>
     </div>
     <div class="panel-body">
+      <div style="font-size:12.5px;margin-bottom:14px;">${statusLine}</div>
       ${list.length? `
       <div class="table-wrap"><table>
         <thead><tr><th>رقم الأوردر</th><th>العميل</th><th>السيلز</th><th>تاريخ الأوردر</th><th>تاريخ التسليم</th><th>إجمالي الإنتاج (كجم)</th><th>حالة الصرف</th><th></th></tr></thead>
@@ -2589,7 +2602,7 @@ function renderExternalOrdersTab(){
           </tr>`;
         }).join('')}
         </tbody>
-      </table></div>` : `<div class="empty-state">${svgIcon('orders')}<div>لسه مفيش أوردرات — أول أوردر يتعمل في نظام الإنتاج هيظهر هنا تلقائي لحظيًا</div></div>`}
+      </table></div>` : `<div class="empty-state">${svgIcon('orders')}<div>${externalOrdersSyncError? 'مقدرش أوصل لنظام الأوردرات — شوف رسالة الخطأ فوق' : (externalOrdersConnected? 'متصلين بنجاح بس قاعدة البيانات فاضية فعلاً — جرب تعمل أوردر تجريبي في نظام الإنتاج وشوف يظهر هنا ولا لأ' : 'لسه مفيش أوردرات — أول أوردر يتعمل في نظام الإنتاج هيظهر هنا تلقائي لحظيًا')}</div></div>`}
     </div>
   </div>`;
   document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
@@ -2761,7 +2774,13 @@ function openDispatchModal(order){
 
 window.addEventListener('external-orders-updated', (e)=>{
   externalOrders = e.detail || [];
+  externalOrdersSyncError = null;
+  externalOrdersConnected = true;
   renderNav();
+  if(typeof currentTab!=='undefined' && currentTab==='customerOrders') renderExternalOrdersTab();
+});
+window.addEventListener('external-orders-sync-error', (e)=>{
+  externalOrdersSyncError = e.detail || 'حصل خطأ غير معروف أثناء الاتصال';
   if(typeof currentTab!=='undefined' && currentTab==='customerOrders') renderExternalOrdersTab();
 });
 
@@ -2788,7 +2807,7 @@ boot();
 <script type="module">
   // نفس مشروع Firebase بتاع نظام "إنشاء الأوردرات" — قراءة لحظية بس، من غير ما نلمس بيانات مخزن التخزين المحلي بتاعنا
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, collection, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyAuGlShJj1aG1oaoDkLvN-1QsnwWSMWliM",
@@ -2802,17 +2821,19 @@ boot();
   try{
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
-    const q = query(collection(db, 'production_orders'), orderBy('savedAt', 'desc'));
-    onSnapshot(q, (snap)=>{
+    // من غير orderBy عشان أي مستند ناقصه حقل "savedAt" ميتستبعدش من النتيجة — الترتيب بيتم في الواجهة بعد الاستلام
+    onSnapshot(collection(db, 'production_orders'), (snap)=>{
       const orders = [];
       snap.forEach(docSnap=> orders.push(Object.assign({id: docSnap.id}, docSnap.data())));
       window.externalOrders = orders;
       window.dispatchEvent(new CustomEvent('external-orders-updated', {detail: orders}));
     }, (err)=>{
       console.error('external orders sync failed:', err);
+      window.dispatchEvent(new CustomEvent('external-orders-sync-error', {detail: (err && err.message) ? err.message : String(err)}));
     });
   }catch(e){
     console.error('firebase init (customer orders sync) failed:', e);
+    window.dispatchEvent(new CustomEvent('external-orders-sync-error', {detail: (e && e.message) ? e.message : String(e)}));
   }
 </script>
 </body>
