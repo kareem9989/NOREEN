@@ -596,7 +596,7 @@ let currentTab = 'dashboard';
 /* ================= AUTH (يوزرين: أدمن / أمين مخزن) ================= */
 const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
-const WAREHOUSE_TABS = ['purchases','raw','whManufacturing','whPackaging','whFinished'];
+const WAREHOUSE_TABS = ['purchaseRequests','purchases','raw','whManufacturing','whPackaging','whFinished'];
 function isTabAllowed(tabId){
   if(!currentUser) return false;
   if(currentUser.role==='admin') return true;
@@ -684,6 +684,7 @@ function freshDB(){
     waste: SEED.waste.map(w=>({id:uid(), date:w.date, item:w.item, wasteType:w.wasteType, qty:w.qty, reason:w.reason||''})),
     breakdowns: SEED.breakdowns.map(b=>({id:uid(), date:b.date, description:b.description, from:b.from, to:b.to})),
     purchases: [],
+    purchaseRequests: [],
     whManufacturing: [],
     whPackaging: [],
     whFinished: [],
@@ -729,6 +730,7 @@ async function loadDB(){
         delete DB.cartons;
       }
       if(!DB.purchases) DB.purchases = [];
+      if(!DB.purchaseRequests) DB.purchaseRequests = [];
       if(!DB.whManufacturing) DB.whManufacturing = [];
       if(!DB.whPackaging) DB.whPackaging = [];
       if(!DB.whFinished) DB.whFinished = [];
@@ -804,6 +806,7 @@ function showToast(msg){
 /* ================= NAV ================= */
 const TABS = [
   {id:'dashboard', label:'لوحة القيادة', ic:'dashboard'},
+  {id:'purchaseRequests', label:'طلبات مشتريات', ic:'orders'},
   {id:'purchases', label:'المشتريات', ic:'download'},
   {id:'raw', label:'مخزن الخامات', ic:'raw'},
   {id:'whManufacturing', label:'مخزن التصنيع', ic:'production'},
@@ -821,6 +824,7 @@ const TABS = [
 ];
 const TITLES = {
   dashboard:['لوحة القيادة','نظرة عامة على المخازن والإنتاج'],
+  purchaseRequests:['طلبات مشتريات','اطلب خامة محتاجينها والأدمن يوافق عليها قبل الشراء'],
   purchases:['المشتريات','تسجيل مشتريات الخامات الواردة من الموردين'],
   raw:['مخزن الخامات','كل حاجة بتدخل المصنع: خامات، رولات، كراتين، وأي فئة تانية — مقسّمة فئات فرعية'],
   whManufacturing:['مخزن التصنيع','أرصدة الأصناف نصف المصنّعة داخل مرحلة التصنيع'],
@@ -847,6 +851,7 @@ function renderNav(){
     else if(t.id==='orders') count = new Set(DB.production.map(p=>p.order||'بدون أوردر')).size;
     else if(t.id==='waste') count = DB.waste.length;
     else if(t.id==='breakdowns') count = DB.breakdowns.length;
+    else if(t.id==='purchaseRequests') count = (DB.purchaseRequests||[]).filter(r=>r.status==='pending').length || '';
     else if(t.id==='purchases') count = DB.purchases.length;
     else if(t.id==='whManufacturing') count = DB.whManufacturing.length;
     else if(t.id==='whPackaging') count = DB.whPackaging.length;
@@ -2294,6 +2299,141 @@ function cascadeReturnToPrev(tabId, item, qty, note){
   });
 }
 
+/* ================= طلبات مشتريات (Purchase Requests) ================= */
+const PR_STATUS_LABEL = {
+  pending: {label:'قيد المراجعة', cls:'pill-warn'},
+  approved: {label:'متوافق عليه', cls:'pill-ok'},
+  rejected: {label:'مرفوض', cls:'pill-danger'},
+  purchased: {label:'تم الشراء', cls:'pill-navy'},
+};
+
+function renderPurchaseRequestsTab(){
+  const list = [...(DB.purchaseRequests||[])].sort((a,b)=> (b.ts||b.date||'').localeCompare(a.ts||a.date||''));
+  let html = `
+  <div class="panel">
+    <div class="panel-head">
+      <h2>طلبات مشتريات <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
+      <div class="toolbar"><button class="btn btn-gold" id="addPurchaseRequestBtn">+ طلب شراء جديد</button></div>
+    </div>
+    <div class="panel-body">
+      ${list.length? `
+      <div class="table-wrap"><table>
+        <thead><tr><th>التاريخ</th><th>الصنف</th><th>الكمية</th><th>ملاحظات</th><th>طلب بواسطة</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>
+        ${list.map(r=>{
+          const st = PR_STATUS_LABEL[r.status] || PR_STATUS_LABEL.pending;
+          const actions = [];
+          if(isAdmin && r.status==='pending'){
+            actions.push(`<button class="btn btn-sm btn-ghost" data-act="approve" data-id="${r.id}">قبول</button>`);
+            actions.push(`<button class="btn btn-sm btn-ghost" data-act="reject" data-id="${r.id}">رفض</button>`);
+          }
+          if(isAdmin && r.status==='approved'){
+            actions.push(`<button class="btn btn-sm btn-ghost" data-act="mark-purchased" data-id="${r.id}">تم الشراء</button>`);
+          }
+          if(isAdmin || (currentUser && r.requestedByPhone===currentUser.phone && r.status==='pending')){
+            actions.push(`<button class="icon-btn danger" data-act="delete" data-id="${r.id}" title="حذف">${svgIcon('trash','sm')}</button>`);
+          }
+          return `
+          <tr data-id="${r.id}">
+            <td>${fmtDateAr(r.date)}</td>
+            <td style="font-weight:700">${esc(r.itemName)}</td>
+            <td class="num">${fmtNum(r.qty)}</td>
+            <td class="muted">${r.notes? esc(r.notes) : '—'}</td>
+            <td>${esc(r.requestedByName||'—')}${r.requestedByPhone?` — ${esc(r.requestedByPhone)}`:''}</td>
+            <td><span class="pill ${st.cls}">${st.label}</span>${r.status!=='pending' && r.reviewedByName? `<div class="muted" style="font-size:11px;margin-top:3px;">بواسطة ${esc(r.reviewedByName)}</div>`:''}</td>
+            <td><div class="btn-icon-row">${actions.join('')}</div></td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state">${svgIcon('orders')}<div>لسه مفيش طلبات مشتريات — اضغط "طلب شراء جديد" عشان تبدأ</div></div>`}
+    </div>
+  </div>`;
+  document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
+  document.getElementById('addPurchaseRequestBtn').addEventListener('click', openPurchaseRequestModal);
+  document.querySelectorAll('[data-act="approve"]').forEach(b=>b.addEventListener('click', ()=> reviewPurchaseRequest(b.dataset.id, 'approved')));
+  document.querySelectorAll('[data-act="reject"]').forEach(b=>b.addEventListener('click', ()=> reviewPurchaseRequest(b.dataset.id, 'rejected')));
+  document.querySelectorAll('[data-act="mark-purchased"]').forEach(b=>b.addEventListener('click', ()=> reviewPurchaseRequest(b.dataset.id, 'purchased')));
+  document.querySelectorAll('[data-act="delete"]').forEach(b=>b.addEventListener('click', ()=>{
+    const r = (DB.purchaseRequests||[]).find(x=>x.id===b.dataset.id);
+    openConfirmModal(`هل تريد حذف طلب الشراء الخاص بـ "${esc(r?r.itemName:'')}"؟`, async ()=>{
+      DB.purchaseRequests = DB.purchaseRequests.filter(x=>x.id!==b.dataset.id);
+      logAction(`حذف طلب شراء "${r?r.itemName:''}"`);
+      await persist();
+      renderPurchaseRequestsTab();
+      renderNav();
+      showToast('تم حذف الطلب');
+    });
+  }));
+}
+
+function openPurchaseRequestModal(){
+  const rawNames = [...new Set(DB.raw.map(r=>r.name))].sort((a,b)=>a.localeCompare(b,'ar'));
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay">
+      <div class="modal">
+        <div class="modal-head"><h3>طلب شراء جديد</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-body">
+          <div class="field"><label>اسم الخامة *</label>
+            <input type="text" id="f_item" list="prItemsList" placeholder="اكتب اسم خامة موجودة أو خامة جديدة">
+            <datalist id="prItemsList">${rawNames.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+          </div>
+          <div class="field"><label>الكمية المطلوبة *</label><input type="number" step="0.01" id="f_qty"></div>
+          <div class="field"><label>ملاحظات (اختياري)</label><input type="text" id="f_notes" placeholder="مثال: هنخلص الأسبوع الجاي"></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
+          <button class="btn btn-primary" id="saveBtn">إرسال الطلب</button>
+        </div>
+      </div>
+    </div>`;
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const itemName = document.getElementById('f_item').value.trim();
+    const qty = Number(document.getElementById('f_qty').value);
+    const notes = document.getElementById('f_notes').value.trim();
+    if(!itemName || !qty || qty<=0){ showToast('اكتب اسم الخامة وكمية صحيحة'); return; }
+    if(!DB.purchaseRequests) DB.purchaseRequests = [];
+    DB.purchaseRequests.unshift({
+      id: uid(), date: todayISO(), ts: new Date().toISOString(),
+      itemName, qty, notes, status:'pending',
+      requestedByName: currentUser? currentUser.name : '',
+      requestedByPhone: currentUser? currentUser.phone : '',
+      requestedByRole: currentUser? currentUser.role : ''
+    });
+    logAction(`طلب شراء "${itemName}" — ${fmtNum(qty)}`);
+    await persist();
+    closeModal();
+    renderPurchaseRequestsTab();
+    renderNav();
+    showToast('تم إرسال الطلب');
+  });
+}
+
+function reviewPurchaseRequest(id, status){
+  const r = (DB.purchaseRequests||[]).find(x=>x.id===id);
+  if(!r) return;
+  const doIt = async ()=>{
+    r.status = status;
+    r.reviewedByName = currentUser? currentUser.name : '';
+    r.reviewedByPhone = currentUser? currentUser.phone : '';
+    r.reviewedAt = new Date().toISOString();
+    const statusLabel = PR_STATUS_LABEL[status] ? PR_STATUS_LABEL[status].label : status;
+    logAction(`${statusLabel} — طلب شراء "${r.itemName}" (${fmtNum(r.qty)})`);
+    await persist();
+    renderPurchaseRequestsTab();
+    renderNav();
+    showToast(`تم تحديث حالة الطلب: ${statusLabel}`);
+  };
+  if(status==='rejected'){
+    openConfirmModal(`هل تريد رفض طلب شراء "${esc(r.itemName)}"؟`, doIt);
+  } else {
+    doIt();
+  }
+}
+
 function renderPurchasesTab(){
   const list = [...DB.purchases].sort((a,b)=> (b.date||'').localeCompare(a.date||''));
   let html = `
@@ -2573,6 +2713,7 @@ function renderContent(){
   selectedProdGroups.clear();
   if(currentTab==='dashboard') renderDashboard();
   else if(currentTab==='orders') renderOrdersTab();
+  else if(currentTab==='purchaseRequests') renderPurchaseRequestsTab();
   else if(currentTab==='purchases') renderPurchasesTab();
   else if(currentTab==='transfers') renderTransfersTab();
   else if(currentTab==='customerOrders') renderExternalOrdersTab();
