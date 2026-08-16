@@ -495,6 +495,12 @@ tr.detail-row.dim td{color:var(--ink-soft);}
       </select>
     </div>
     <div class="field" style="margin-bottom:12px;">
+      <label>مين بيدخل؟</label>
+      <select id="loginSavedUser">
+        <option value="new">+ مستخدم جديد</option>
+      </select>
+    </div>
+    <div class="field" style="margin-bottom:12px;">
       <label>الاسم</label>
       <input type="text" id="loginName" placeholder="اكتب اسمك">
     </div>
@@ -686,7 +692,8 @@ function freshDB(){
     importedOrders: [],
     suppliers: [],
     itemCard: [],
-    auditLog: []
+    auditLog: [],
+    knownUsers: []
   };
 }
 
@@ -731,6 +738,7 @@ async function loadDB(){
       if(!DB.suppliers) DB.suppliers = [];
       if(!DB.itemCard) DB.itemCard = [];
       if(!DB.auditLog) DB.auditLog = [];
+      if(!DB.knownUsers) DB.knownUsers = [];
       await persist(true);
       return;
     }
@@ -3025,7 +3033,35 @@ function showLoginScreen(){
   const roleSelect = document.getElementById('loginRole');
   const nameInput = document.getElementById('loginName');
   const phoneInput = document.getElementById('loginPhone');
+  const savedSelect = document.getElementById('loginSavedUser');
   const errBox = document.getElementById('loginError');
+
+  const knownUsers = DB.knownUsers || [];
+  savedSelect.innerHTML = `<option value="new">+ مستخدم جديد</option>` +
+    knownUsers.map((u,i)=>`<option value="${i}">${esc(u.name)} — ${esc(u.phone)}</option>`).join('');
+
+  savedSelect.onchange = ()=>{
+    if(savedSelect.value==='new'){
+      nameInput.value = '';
+      phoneInput.value = '';
+      nameInput.disabled = false;
+      phoneInput.disabled = false;
+      nameInput.focus();
+    } else {
+      const u = knownUsers[Number(savedSelect.value)];
+      if(u){
+        nameInput.value = u.name;
+        phoneInput.value = u.phone;
+        if(u.role) roleSelect.value = u.role;
+      }
+      nameInput.disabled = true;
+      phoneInput.disabled = true;
+      passInput.focus();
+    }
+  };
+  savedSelect.value = 'new';
+  savedSelect.onchange();
+
   const submit = ()=>{
     const role = roleSelect.value;
     const pass = passInput.value;
@@ -3042,6 +3078,10 @@ function showLoginScreen(){
       try{ localStorage.setItem(AUTH_KEY, JSON.stringify(currentUser)); }catch(e){ /* ignore */ }
       errBox.classList.add('hidden');
       passInput.value = '';
+      if(!DB.knownUsers) DB.knownUsers = [];
+      const existing = DB.knownUsers.find(u=> u.name.trim().toLowerCase()===name.toLowerCase() && u.phone.trim()===phone);
+      if(existing){ existing.role = role; }
+      else { DB.knownUsers.push({name, phone, role}); }
       logAction(`تسجيل دخول (${role==='admin'?'أدمن':'أمين مخزن'})`);
       persist(true);
       enterApp();
@@ -3054,7 +3094,6 @@ function showLoginScreen(){
   [passInput, nameInput, phoneInput].forEach(inp=>{
     inp.onkeydown = (e)=>{ if(e.key==='Enter') submit(); };
   });
-  nameInput.focus();
 }
 
 function logoutUser(){
