@@ -544,6 +544,7 @@ const ICONS = {
   chevron:'<path d="M6 9l6 6 6-6"/>',
   print:'<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6v-7Z"/>',
   bell:'<path d="M6 8a6 6 0 0 1 12 0c0 6.5 2.5 8.5 2.5 8.5H3.5S6 14.5 6 8Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  suppliers:'<circle cx="8" cy="8" r="3.2"/><path d="M2.5 19c0-3.3 2.5-5.8 5.5-5.8s5.5 2.5 5.5 5.8"/><circle cx="17" cy="8.5" r="2.6"/><path d="M14.8 13.5c2.6.2 4.7 2.4 4.7 5.5"/>',
 };
 function svgIcon(name, cls){
   return `<svg class="icon-svg ${cls||''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`;
@@ -637,7 +638,8 @@ function freshDB(){
     whFinished: [],
     transfers: [],
     dispatches: [],
-    importedOrders: []
+    importedOrders: [],
+    suppliers: []
   };
 }
 
@@ -678,6 +680,7 @@ async function loadDB(){
       if(!DB.transfers) DB.transfers = [];
       if(!DB.dispatches) DB.dispatches = [];
       if(!DB.importedOrders) DB.importedOrders = [];
+      if(!DB.suppliers) DB.suppliers = [];
       await persist(true);
       return;
     }
@@ -724,6 +727,14 @@ function fmtDateAr(d){
   if(Number.isNaN(dt.getTime())) return d;
   return dt.toLocaleDateString('ar-EG',{day:'numeric',month:'short',year:'numeric'});
 }
+function fmtDateTimeAr(ts){
+  if(!ts) return '—';
+  const dt = new Date(ts);
+  if(Number.isNaN(dt.getTime())) return ts;
+  const datePart = dt.toLocaleDateString('ar-EG',{day:'numeric',month:'short',year:'numeric'});
+  const timePart = dt.toLocaleTimeString('ar-EG',{hour:'numeric',minute:'2-digit',hour12:true});
+  return `${datePart} — ${timePart}`;
+}
 function showToast(msg){
   const t = document.getElementById('toast');
   document.getElementById('toastText').textContent = msg;
@@ -741,6 +752,7 @@ const TABS = [
   {id:'whPackaging', label:'مخزن التعبئة والتغليف', ic:'box'},
   {id:'whFinished', label:'مخزن الإنتاج التام', ic:'spark'},
   {id:'transfers', label:'التحويلات المخزنية', ic:'history'},
+  {id:'suppliers', label:'الموردين', ic:'suppliers'},
   {id:'customerOrders', label:'أوردرات العملاء', ic:'orders'},
   {id:'production', label:'الإنتاج اليومي', ic:'production'},
   {id:'orders', label:'الأوردرات', ic:'orders'},
@@ -755,6 +767,7 @@ const TITLES = {
   whPackaging:['مخزن التعبئة والتغليف','أرصدة الأصناف بعد مرحلة التعبئة والتغليف'],
   whFinished:['مخزن الإنتاج التام','أرصدة المنتج النهائي الجاهز'],
   transfers:['التحويلات المخزنية','تسجيل كل تحويل بين المخازن بدل الورق: من مخزن إلى مخزن'],
+  suppliers:['الموردين','بيانات التواصل والأسعار لكل مورد'],
   customerOrders:['أوردرات العملاء','استورد ملف JSON من نظام إنشاء الأوردرات عشان تشوفهم هنا'],
   production:['الإنتاج اليومي','تسجيل أوردرات وكميات الإنتاج اليومية'],
   orders:['الأوردرات','الإنتاج مجمّعًا حسب كل عميل/أوردر'],
@@ -776,6 +789,7 @@ function renderNav(){
     else if(t.id==='whPackaging') count = DB.whPackaging.length;
     else if(t.id==='whFinished') count = DB.whFinished.length;
     else if(t.id==='transfers') count = DB.transfers.length;
+    else if(t.id==='suppliers') count = DB.suppliers.length;
     else if(t.id==='customerOrders') count = (DB.importedOrders||[]).length;
     return `<button class="nav-item ${currentTab===t.id?'active':''}" data-tab="${t.id}">
       ${svgIcon(t.ic)}<span>${t.label}</span>
@@ -1195,6 +1209,35 @@ const CONFIGS = {
     searchKeys:['name'],
     filterKey:null,
   },
+  suppliers:{
+    title:'الموردين', addLabel:'إضافة مورد جديد',
+    fields:[
+      {key:'name', label:'الاسم', type:'text', required:true},
+      {key:'phone', label:'رقم الهاتف', type:'text', required:false},
+      {key:'address', label:'العنوان', type:'text', required:false},
+      {key:'email', label:'البريد الإلكتروني', type:'text', required:false},
+      {key:'item', label:'الصنف المستورد منه', type:'text', required:false},
+      {key:'orderDate', label:'تاريخ الطلب', type:'date', required:false},
+      {key:'receiveDate', label:'تاريخ الاستلام', type:'date', required:false},
+      {key:'prices', label:'الأسعار', type:'text', required:false},
+      {key:'balance', label:'الكمية الحالية', type:'number', required:false, step:'0.01'},
+    ],
+    columns:[
+      {key:'name', label:'الاسم'},
+      {key:'phone', label:'رقم الهاتف'},
+      {key:'address', label:'العنوان'},
+      {key:'email', label:'البريد الإلكتروني'},
+      {key:'item', label:'الصنف المستورد منه'},
+      {key:'orderDate', label:'تاريخ الطلب'},
+      {key:'receiveDate', label:'تاريخ الاستلام'},
+      {key:'prices', label:'الأسعار'},
+      {key:'balance', label:'الكمية الحالية'},
+      {key:'adjust', label:'صرف / إضافة'},
+    ],
+    searchKeys:['name','phone','address','email','item','prices'],
+    filterKey:null,
+    dateKey:'orderDate',
+  },
 };
 
 let tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
@@ -1527,7 +1570,7 @@ function renderTableRows(tabId){
         const isLow = col.key==='balance' && Number(val)<=DB.settings.lowStockThreshold;
         return `<td class="num" ${isLow ? 'style="color:var(--danger)"':''}>${fmtNum(val)}</td>`;
       }
-      if(col.key==='date' || col.key==='productionDate' || col.key==='expiryDate'){
+      if(col.key==='date' || col.key==='productionDate' || col.key==='expiryDate' || col.key==='orderDate' || col.key==='receiveDate'){
         const dv = item[col.key];
         const isExpiringDate = col.key==='expiryDate' && expiryStatus(dv) && expiryStatus(dv).cls!=='pill-ok';
         return `<td ${isExpiringDate?'style="color:var(--danger);font-weight:700"':''}>${dv? fmtDateAr(dv) : '<span class="muted">—</span>'}</td>`;
@@ -1544,7 +1587,7 @@ function renderTableRows(tabId){
       }
       return `<td>${esc(item[col.key]) || '<span class="muted">—</span>'}</td>`;
     }).join('');
-    const hasHistory = (tabId==='raw' || tabId==='rolls' || tabId==='cartons' || tabId==='whManufacturing' || tabId==='whPackaging' || tabId==='whFinished');
+    const hasHistory = (tabId==='raw' || tabId==='rolls' || tabId==='cartons' || tabId==='whManufacturing' || tabId==='whPackaging' || tabId==='whFinished' || tabId==='suppliers');
     return `<tr data-id="${item.id}">
       ${cells}
       <td>
@@ -1596,7 +1639,7 @@ function renderTableRows(tabId){
     const sign = isMinus ? -1 : 1;
     item.balance = Math.round((item.balance + sign*amt)*100)/100;
     item.history = item.history || [];
-    item.history.push({date: todayISO(), type: sign>0?'اضافه':'صرف', qty: amt});
+    item.history.push({date: todayISO(), ts: new Date().toISOString(), type: sign>0?'اضافه':'صرف', qty: amt});
     await persist();
     renderTableRows(tabId);
     renderNav();
@@ -1890,7 +1933,7 @@ function openItemModal(tabId, item, presetVals){
       Object.assign(item, newData);
     } else {
       const rec = {id: uid(), ...newData};
-      if(tabId==='raw' || tabId==='rolls' || tabId==='whManufacturing' || tabId==='whPackaging' || tabId==='whFinished') rec.history = [];
+      if(tabId==='raw' || tabId==='rolls' || tabId==='whManufacturing' || tabId==='whPackaging' || tabId==='whFinished' || tabId==='suppliers') rec.history = [];
       DB[tabId].unshift(rec);
     }
     await persist();
@@ -1968,7 +2011,7 @@ function openHistoryDrawer(tabId, item){
                   <span>${h.type==='اضافه'?'إضافة':(h.type==='شراء'?'شراء':(h.type==='مرتجع'?'مرتجع':'صرف'))} ${fmtNum(h.qty)}${h.notes?' — '+esc(h.notes):''}</span>
                   <span style="color:${(h.type==='اضافه'||h.type==='شراء')?'var(--ok)':'var(--danger)'}">${(h.type==='اضافه'||h.type==='شراء')?'+':'−'}${fmtNum(h.qty)}</span>
                 </div>
-                <div class="date">${fmtDateAr(h.date)}</div>
+                <div class="date">${h.ts ? fmtDateTimeAr(h.ts) : fmtDateAr(h.date)}</div>
               </div>
             </div>`).join('')}
         </div>` : `<div class="empty-state"><div class="big">${svgIcon('history')}</div>لا يوجد حركات مسجلة بعد على هذا الصنف</div>`}
