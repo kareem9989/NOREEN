@@ -494,6 +494,14 @@ tr.detail-row.dim td{color:var(--ink-soft);}
         <option value="warehouse">أمين مخزن (المشتريات والمخازن فقط)</option>
       </select>
     </div>
+    <div class="field" style="margin-bottom:12px;">
+      <label>الاسم</label>
+      <input type="text" id="loginName" placeholder="اكتب اسمك">
+    </div>
+    <div class="field" style="margin-bottom:12px;">
+      <label>رقم الموبايل</label>
+      <input type="tel" id="loginPhone" placeholder="اكتب رقم موبايلك">
+    </div>
     <div class="field" style="margin-bottom:6px;">
       <label>كلمة السر</label>
       <input type="password" id="loginPass" placeholder="اكتب كلمة السر">
@@ -677,7 +685,8 @@ function freshDB(){
     dispatches: [],
     importedOrders: [],
     suppliers: [],
-    itemCard: []
+    itemCard: [],
+    auditLog: []
   };
 }
 
@@ -721,6 +730,7 @@ async function loadDB(){
       if(!DB.importedOrders) DB.importedOrders = [];
       if(!DB.suppliers) DB.suppliers = [];
       if(!DB.itemCard) DB.itemCard = [];
+      if(!DB.auditLog) DB.auditLog = [];
       await persist(true);
       return;
     }
@@ -799,6 +809,7 @@ const TABS = [
   {id:'orders', label:'الأوردرات', ic:'orders'},
   {id:'waste', label:'تقرير الهالك', ic:'waste'},
   {id:'breakdowns', label:'الأعطال', ic:'breakdowns'},
+  {id:'auditLog', label:'سجل النشاط', ic:'history'},
 ];
 const TITLES = {
   dashboard:['لوحة القيادة','نظرة عامة على المخازن والإنتاج'],
@@ -815,6 +826,7 @@ const TITLES = {
   orders:['الأوردرات','الإنتاج مجمّعًا حسب كل عميل/أوردر'],
   waste:['تقرير الهالك','تسجيل الهالك اليومي وأسبابه'],
   breakdowns:['الأعطال','تسجيل أعطال وتوقفات خط الإنتاج'],
+  auditLog:['سجل النشاط','كل تعديل حصل في النظام ومين اللي عمله'],
 };
 
 function renderNav(){
@@ -835,6 +847,7 @@ function renderNav(){
     else if(t.id==='suppliers') count = DB.suppliers.length;
     else if(t.id==='itemCard') count = DB.itemCard.length;
     else if(t.id==='customerOrders') count = (DB.importedOrders||[]).length;
+    else if(t.id==='auditLog') count = (DB.auditLog||[]).length;
     return `<button class="nav-item ${currentTab===t.id?'active':''}" data-tab="${t.id}">
       ${svgIcon(t.ic)}<span>${t.label}</span>
       ${count!==''?`<span class="badge-count">${count}</span>`:''}
@@ -1072,6 +1085,7 @@ function renderDashboard(){
   document.getElementById('applyThreshold').addEventListener('click', async ()=>{
     const v = Number(document.getElementById('thresholdInput').value)||0;
     DB.settings.lowStockThreshold = v;
+    logAction(`غيّر حد الأمان للمخزون إلى ${v}`);
     await persist();
     renderDashboard();
     showToast('تم تحديث حد الأمان');
@@ -1696,6 +1710,7 @@ function renderTableRows(tabId){
       // بدل ما الكمية المصروفة تختفي، بترجع تلقائي لنفس الصنف في المخزن اللي قبله في السلسلة
       item.balance = Math.round((item.balance - amt)*100)/100;
       cascadeReturnToPrev(tabId, item, amt);
+      logAction(`صرف ${fmtNum(amt)} من "${item.name}" (${TITLES[tabId][0]}) — رجعت تلقائي لـ ${TITLES[prevTabId][0]}`);
       await persist();
       renderTableRows(tabId);
       renderNav();
@@ -1706,7 +1721,8 @@ function renderTableRows(tabId){
     const sign = isMinus ? -1 : 1;
     item.balance = Math.round((item.balance + sign*amt)*100)/100;
     item.history = item.history || [];
-    item.history.push({date: todayISO(), ts: new Date().toISOString(), type: sign>0?'اضافه':'صرف', qty: amt});
+    item.history.push({date: todayISO(), ts: new Date().toISOString(), type: sign>0?'اضافه':'صرف', qty: amt, by: userTag()});
+    logAction(`${sign>0?'أضاف':'صرف'} ${fmtNum(amt)} لصنف "${item.name}" (${TITLES[tabId][0]})`);
     await persist();
     renderTableRows(tabId);
     renderNav();
@@ -1922,6 +1938,7 @@ function confirmDelete(tabId, id){
       cascadeReturnToPrev(tabId, item, qty, `إرجاع رصيد متبقي قبل حذف الصنف من ${TITLES[tabId][0]}`);
     }
     DB[tabId] = DB[tabId].filter(i=>i.id!==id);
+    logAction(`حذف "${name}" من ${TITLES[tabId][0]}`);
     await persist();
     renderTableRows(tabId);
     renderNav();
@@ -1998,10 +2015,12 @@ function openItemModal(tabId, item, presetVals){
 
     if(isEdit){
       Object.assign(item, newData);
+      logAction(`عدّل "${newData.name||newData.description||'عنصر'}" في ${TITLES[tabId][0]}`);
     } else {
       const rec = {id: uid(), ...newData};
       if(tabId==='raw' || tabId==='rolls' || tabId==='whManufacturing' || tabId==='whPackaging' || tabId==='whFinished' || tabId==='suppliers') rec.history = [];
       DB[tabId].unshift(rec);
+      logAction(`أضاف "${newData.name||newData.description||'عنصر جديد'}" في ${TITLES[tabId][0]}`);
     }
     await persist();
     closeModal();
@@ -2081,7 +2100,7 @@ function openHistoryDrawer(tabId, item){
                   <span>${h.type==='اضافه'?'إضافة':(h.type==='شراء'?'شراء':(h.type==='مرتجع'?'مرتجع':'صرف'))} ${fmtNum(h.qty)}${h.notes?' — '+esc(h.notes):''}</span>
                   <span style="color:${(h.type==='اضافه'||h.type==='شراء')?'var(--ok)':'var(--danger)'}">${(h.type==='اضافه'||h.type==='شراء')?'+':'−'}${fmtNum(h.qty)}</span>
                 </div>
-                <div class="date">${h.ts ? fmtDateTimeAr(h.ts) : fmtDateAr(h.date)}</div>
+                <div class="date">${h.ts ? fmtDateTimeAr(h.ts) : fmtDateAr(h.date)}${h.by?` — بواسطة ${esc(h.by)}`:''}</div>
               </div>
             </div>`).join('')}
         </div>` : `<div class="empty-state"><div class="big">${svgIcon('history')}</div>لا يوجد حركات مسجلة بعد على هذا الصنف</div>`}
@@ -2116,7 +2135,7 @@ function buildItemLedger(item){
     const removed = isOut ? qty : 0;
     const closing = opening + added - removed;
     running = closing;
-    return {date:h.date, ts:h.ts, opening, added, removed, closing, notes:h.notes};
+    return {date:h.date, ts:h.ts, opening, added, removed, closing, notes:h.notes, by:h.by||''};
   });
 }
 
@@ -2133,6 +2152,7 @@ function printItemCard(item){
       <td>${r.removed ? fmtNum(r.removed) : '—'}</td>
       <td>${fmtNum(r.closing)}</td>
       <td>${r.notes ? esc(r.notes) : '—'}</td>
+      <td>${r.by ? esc(r.by) : '—'}</td>
     </tr>`).join('');
   const totalAdded = ledger.reduce((s,r)=>s+r.added,0);
   const totalRemoved = ledger.reduce((s,r)=>s+r.removed,0);
@@ -2149,9 +2169,9 @@ function printItemCard(item){
       </div>
     </div>
     <table>
-      <thead><tr><th>التاريخ</th><th>الرصيد الافتتاحي</th><th>إضافة</th><th>صرف</th><th>الرصيد النهائي</th><th>ملاحظات</th></tr></thead>
+      <thead><tr><th>التاريخ</th><th>الرصيد الافتتاحي</th><th>إضافة</th><th>صرف</th><th>الرصيد النهائي</th><th>ملاحظات</th><th>بواسطة</th></tr></thead>
       <tbody>${rowsHtml}</tbody>
-      <tfoot><tr><td>الإجمالي</td><td></td><td>${fmtNum(totalAdded)}</td><td>${fmtNum(totalRemoved)}</td><td>${fmtNum(item.balance)}</td><td></td></tr></tfoot>
+      <tfoot><tr><td>الإجمالي</td><td></td><td>${fmtNum(totalAdded)}</td><td>${fmtNum(totalRemoved)}</td><td>${fmtNum(item.balance)}</td><td></td><td></td></tr></tfoot>
     </table>
     <div class="pr-foot">EgyGulf Foods — نظام إدارة المخازن والإنتاج</div>
   `;
@@ -2247,7 +2267,7 @@ function cascadeReturnToPrev(tabId, item, qty, note){
   const date = todayISO();
   const transferId = uid();
   item.history = item.history || [];
-  item.history.push({date, type:'صرف', qty, notes: note || `إرجاع تلقائي لـ ${TITLES[prevTabId][0]}`, refId: transferId});
+  item.history.push({date, type:'صرف', qty, notes: note || `إرجاع تلقائي لـ ${TITLES[prevTabId][0]}`, refId: transferId, by: userTag()});
 
   const prevArr = DB[prevTabId];
   let prevItem = prevArr.find(i=>i.name.trim()===item.name.trim());
@@ -2258,7 +2278,7 @@ function cascadeReturnToPrev(tabId, item, qty, note){
   }
   prevItem.balance = Math.round((prevItem.balance + qty)*100)/100;
   prevItem.history = prevItem.history || [];
-  prevItem.history.push({date, type:'اضافه', qty, notes: note || `راجع تلقائي من ${TITLES[tabId][0]}`, refId: transferId});
+  prevItem.history.push({date, type:'اضافه', qty, notes: note || `راجع تلقائي من ${TITLES[tabId][0]}`, refId: transferId, by: userTag()});
 
   DB.transfers.unshift({
     id:transferId, date, fromWarehouse:TABID_TO_WHID[tabId], toWarehouse:TABID_TO_WHID[prevTabId], notes: note || 'إرجاع تلقائي',
@@ -2318,6 +2338,7 @@ function renderPurchasesTab(){
         }
       }
       DB.purchases = DB.purchases.filter(x=>x.id!==b.dataset.id);
+      logAction(`حذف سجل ${isReturn?'مرتجع':'شراء'}${p?` — "${p.itemName}" (${fmtNum(p.qty)})`:''}`);
       await persist();
       renderPurchasesTab();
       renderNav();
@@ -2371,8 +2392,9 @@ function openPurchaseModal(kind){
     const sign = isReturn ? -1 : 1;
     item.balance = Math.round((item.balance + sign*qty)*100)/100;
     item.history = item.history || [];
-    item.history.push({date, type: isReturn?'مرتجع':'شراء', qty, notes: supplier?`${isReturn?'مرتجع لـ':'مورد:'} ${supplier}${notes?' — '+notes:''}`:notes, refId: recId});
+    item.history.push({date, type: isReturn?'مرتجع':'شراء', qty, notes: supplier?`${isReturn?'مرتجع لـ':'مورد:'} ${supplier}${notes?' — '+notes:''}`:notes, refId: recId, by: userTag()});
     DB.purchases.unshift({id:recId, date, itemId:item.id, itemName: item.name, qty, supplier, notes, kind});
+    logAction(`سجّل ${isReturn?'مرتجع':'شراء'} "${item.name}" — ${fmtNum(qty)}${supplier?` (${supplier})`:''}`);
     await persist();
     closeModal();
     renderPurchasesTab();
@@ -2437,6 +2459,7 @@ function renderTransfersTab(){
         });
       }
       DB.transfers = DB.transfers.filter(x=>x.id!==b.dataset.id);
+      logAction(`حذف سجل تحويل${t?` من ${whLabel(t.fromWarehouse)} إلى ${whLabel(t.toWarehouse)}`:''}`);
       await persist();
       renderTransfersTab();
       renderNav();
@@ -2509,7 +2532,7 @@ function openTransferModal(prefill){
     const transferId = uid();
     fromItem.balance = Math.round((fromItem.balance - qty)*100)/100;
     fromItem.history = fromItem.history || [];
-    fromItem.history.push({date, type:'صرف', qty, notes:`تحويل إلى ${whLabel(toWh)}${notes?' — '+notes:''}`, refId: transferId});
+    fromItem.history.push({date, type:'صرف', qty, notes:`تحويل إلى ${whLabel(toWh)}${notes?' — '+notes:''}`, refId: transferId, by: userTag()});
 
     // نفس اسم الصنف بيتنقل تلقائي للمخزن التاني (نفس المنطق: بدل الورق، مفيش داعي تكتب الاسم تاني)
     const toArr = whArray(toWh);
@@ -2520,12 +2543,13 @@ function openTransferModal(prefill){
     }
     toItem.balance = Math.round((toItem.balance + qty)*100)/100;
     toItem.history = toItem.history || [];
-    toItem.history.push({date, type:'اضافه', qty, notes:`تحويل من ${whLabel(fromWh)}${notes?' — '+notes:''}`, refId: transferId});
+    toItem.history.push({date, type:'اضافه', qty, notes:`تحويل من ${whLabel(fromWh)}${notes?' — '+notes:''}`, refId: transferId, by: userTag()});
 
     DB.transfers.unshift({
       id:transferId, date, fromWarehouse:fromWh, toWarehouse:toWh, notes,
       lines:[{fromItemId:fromItem.id, fromItemName:fromItem.name, fromQty:qty, toItemId:toItem.id, toItemName:toItem.name, toQty:qty}]
     });
+    logAction(`حوّل ${fmtNum(qty)} من "${fromItem.name}" — ${whLabel(fromWh)} إلى ${whLabel(toWh)}`);
 
     await persist();
     closeModal();
@@ -2544,6 +2568,7 @@ function renderContent(){
   else if(currentTab==='purchases') renderPurchasesTab();
   else if(currentTab==='transfers') renderTransfersTab();
   else if(currentTab==='customerOrders') renderExternalOrdersTab();
+  else if(currentTab==='auditLog') renderAuditLogTab();
   else renderGenericTab(currentTab);
 }
 
@@ -2637,6 +2662,35 @@ function initNotifBell(){
   });
 }
 
+/* ================= سجل النشاط (Audit Log) ================= */
+function renderAuditLogTab(){
+  const list = [...(DB.auditLog||[])];
+  let html = `
+  <div class="panel">
+    <div class="panel-head">
+      <h2>سجل النشاط <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
+      <div class="muted" style="font-size:12.5px;">كل تعديل حصل في النظام: مين عمله وإمتى</div>
+    </div>
+    <div class="panel-body">
+      ${list.length? `
+      <div class="table-wrap"><table>
+        <thead><tr><th>الوقت</th><th>المستخدم</th><th>رقم الموبايل</th><th>الدور</th><th>الإجراء</th></tr></thead>
+        <tbody>
+        ${list.map(a=>`
+          <tr>
+            <td style="white-space:nowrap;">${fmtDateTimeAr(a.ts)}</td>
+            <td style="font-weight:700">${esc(a.name||'—')}</td>
+            <td>${esc(a.phone||'—')}</td>
+            <td>${a.role==='admin'?'أدمن':(a.role==='warehouse'?'أمين مخزن':'—')}</td>
+            <td>${esc(a.action||'—')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state">${svgIcon('history')}<div>لسه مفيش أي نشاط مسجل</div></div>`}
+    </div>
+  </div>`;
+  document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
+}
+
 /* ================= منطقة المستخدم في الهيدر (تسجيل الدخول بقى على مستوى النظام كله) ================= */
 let isAdmin = false; // = currentUser.role==='admin' — متسيبة عشان باقي الكود بيعتمد عليها
 
@@ -2645,7 +2699,7 @@ function renderAdminArea(){
   if(!area || !currentUser) return;
   const roleLabel = currentUser.role==='admin' ? 'أدمن' : 'أمين مخزن';
   area.innerHTML = `
-    <span class="pill pill-navy" style="font-size:12px;">${roleLabel}</span>
+    <span class="pill pill-navy" style="font-size:12px;" title="${esc(currentUser.phone||'')}">${esc(currentUser.name||'')} — ${roleLabel}</span>
     ${currentUser.role==='admin' ? `<button class="btn btn-ghost btn-sm" id="adminSettingsBtn" title="إعدادات الأدمن">${svgIcon('edit','sm')} إعدادات</button>` : ''}
     <button class="btn btn-ghost btn-sm" id="userLogoutBtn">تسجيل الخروج</button>`;
   const settingsBtn = document.getElementById('adminSettingsBtn');
@@ -2687,6 +2741,11 @@ function openAdminSettingsModal(){
     DB.settings.orderSystemUrl = url;
     if(newPass) DB.settings.adminPassword = newPass;
     if(newPassWh) DB.settings.warehousePassword = newPassWh;
+    const changes = [];
+    if(newPass) changes.push('كلمة سر الأدمن');
+    if(newPassWh) changes.push('كلمة سر أمين المخزن');
+    changes.push('لينك نظام الأوردرات');
+    logAction(`عدّل إعدادات النظام (${changes.join('، ')})`);
     await persist();
     closeModal();
     if(currentTab==='customerOrders') renderExternalOrdersTab();
@@ -2767,6 +2826,7 @@ function renderExternalOrdersTab(){
             if(idx>=0){ DB.importedOrders[idx] = o; updatedCount++; }
             else { DB.importedOrders.push(o); addedCount++; }
           });
+          logAction(`استورد أوردرات عملاء: ${addedCount} جديد${updatedCount?`، ${updatedCount} اتحدّث`:''}`);
           await persist();
           renderNav();
           renderExternalOrdersTab();
@@ -2858,6 +2918,7 @@ function openExternalOrderDetail(orderId){
         });
         DB.dispatches = DB.dispatches.filter(x=>x.id!==d.id);
       }
+      logAction(`تراجع عن صرف أوردر ${o.ono||''} — العميل ${o.cust||''}`);
       await persist();
       renderNav();
       openExternalOrderDetail(o.id);
@@ -2923,11 +2984,12 @@ function openDispatchModal(order){
       }
       item.balance = Math.round((item.balance - ln.qty)*100)/100;
       item.history = item.history || [];
-      item.history.push({date, type:'صرف', qty:ln.qty, notes:`صرف لأوردر ${order.ono||''} — العميل ${order.cust||''}`, refId: dispatchId+'_'+item.id});
+      item.history.push({date, type:'صرف', qty:ln.qty, notes:`صرف لأوردر ${order.ono||''} — العميل ${order.cust||''}`, refId: dispatchId+'_'+item.id, by: userTag()});
       savedLines.push({productName: ln.productName, itemId:item.id, itemName:item.name, qty:ln.qty});
     });
 
     DB.dispatches.unshift({id:dispatchId, orderId:order.id, ono:order.ono||'', cust:order.cust||'', date, lines:savedLines});
+    logAction(`سجّل صرف أوردر ${order.ono||''} — العميل ${order.cust||''}`);
     await persist();
     closeModal();
     renderNav();
@@ -2937,22 +2999,51 @@ function openDispatchModal(order){
 }
 
 /* ================= تسجيل الدخول ================= */
+function userTag(){
+  if(!currentUser) return '—';
+  return `${currentUser.name}${currentUser.phone?' - '+currentUser.phone:''}`;
+}
+
+function logAction(text){
+  if(!DB.auditLog) DB.auditLog = [];
+  DB.auditLog.unshift({
+    id: uid(),
+    ts: new Date().toISOString(),
+    name: currentUser ? currentUser.name : '',
+    phone: currentUser ? currentUser.phone : '',
+    role: currentUser ? currentUser.role : '',
+    action: text
+  });
+  if(DB.auditLog.length > 1000) DB.auditLog.length = 1000;
+}
+
 function showLoginScreen(){
   document.getElementById('loading').classList.add('hidden');
   document.getElementById('app').classList.add('hidden');
   document.getElementById('loginScreen').classList.remove('hidden');
   const passInput = document.getElementById('loginPass');
   const roleSelect = document.getElementById('loginRole');
+  const nameInput = document.getElementById('loginName');
+  const phoneInput = document.getElementById('loginPhone');
   const errBox = document.getElementById('loginError');
   const submit = ()=>{
     const role = roleSelect.value;
     const pass = passInput.value;
+    const name = nameInput.value.trim();
+    const phone = phoneInput.value.trim();
+    if(!name || !phone){
+      errBox.textContent = 'من فضلك اكتب اسمك ورقم موبايلك';
+      errBox.classList.remove('hidden');
+      return;
+    }
     const expected = role==='admin' ? (DB.settings.adminPassword||'admin123') : (DB.settings.warehousePassword||'wh123');
     if(pass === expected){
-      currentUser = {role};
+      currentUser = {role, name, phone};
       try{ localStorage.setItem(AUTH_KEY, JSON.stringify(currentUser)); }catch(e){ /* ignore */ }
       errBox.classList.add('hidden');
       passInput.value = '';
+      logAction(`تسجيل دخول (${role==='admin'?'أدمن':'أمين مخزن'})`);
+      persist(true);
       enterApp();
     } else {
       errBox.textContent = 'كلمة السر غلط';
@@ -2960,11 +3051,14 @@ function showLoginScreen(){
     }
   };
   document.getElementById('loginSubmitBtn').onclick = submit;
-  passInput.onkeydown = (e)=>{ if(e.key==='Enter') submit(); };
-  passInput.focus();
+  [passInput, nameInput, phoneInput].forEach(inp=>{
+    inp.onkeydown = (e)=>{ if(e.key==='Enter') submit(); };
+  });
+  nameInput.focus();
 }
 
 function logoutUser(){
+  if(currentUser){ logAction('تسجيل خروج'); persist(true); }
   currentUser = null;
   isAdmin = false;
   try{ localStorage.removeItem(AUTH_KEY); }catch(e){ /* ignore */ }
@@ -2994,7 +3088,7 @@ async function boot(){
   updateNotifBell();
   let stored = null;
   try{ stored = JSON.parse(localStorage.getItem(AUTH_KEY)||'null'); }catch(e){ /* ignore */ }
-  if(stored && (stored.role==='admin' || stored.role==='warehouse')){
+  if(stored && (stored.role==='admin' || stored.role==='warehouse') && stored.name && stored.phone){
     currentUser = stored;
     enterApp();
   } else {
