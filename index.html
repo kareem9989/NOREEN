@@ -481,6 +481,28 @@ tr.detail-row.dim td{color:var(--ink-soft);}
   <div style="font-weight:700;color:var(--navy);">جارِ تحميل بيانات EgyGulf Foods…</div>
 </div>
 
+<div id="loginScreen" class="hidden" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:20px;">
+  <div class="panel" style="max-width:380px;width:100%;padding:28px 26px;">
+    <div style="text-align:center;margin-bottom:18px;">
+      <div style="font-weight:800;font-size:18px;color:var(--navy);">EgyGulf Foods</div>
+      <div class="muted" style="font-size:12.5px;margin-top:4px;">نظام إدارة المخازن والإنتاج — سجّل دخولك للمتابعة</div>
+    </div>
+    <div class="field" style="margin-bottom:12px;">
+      <label>نوع المستخدم</label>
+      <select id="loginRole">
+        <option value="admin">أدمن (كل الصلاحيات)</option>
+        <option value="warehouse">أمين مخزن (المشتريات والمخازن فقط)</option>
+      </select>
+    </div>
+    <div class="field" style="margin-bottom:6px;">
+      <label>كلمة السر</label>
+      <input type="password" id="loginPass" placeholder="اكتب كلمة السر">
+    </div>
+    <div id="loginError" class="hidden" style="color:var(--danger);font-size:12.5px;margin-bottom:10px;">كلمة السر غلط</div>
+    <button class="btn btn-primary" id="loginSubmitBtn" style="width:100%;margin-top:10px;">دخول</button>
+  </div>
+</div>
+
 <div class="app hidden" id="app">
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
@@ -545,6 +567,7 @@ const ICONS = {
   print:'<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2M6 14h12v7H6v-7Z"/>',
   bell:'<path d="M6 8a6 6 0 0 1 12 0c0 6.5 2.5 8.5 2.5 8.5H3.5S6 14.5 6 8Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
   suppliers:'<circle cx="8" cy="8" r="3.2"/><path d="M2.5 19c0-3.3 2.5-5.8 5.5-5.8s5.5 2.5 5.5 5.8"/><circle cx="17" cy="8.5" r="2.6"/><path d="M14.8 13.5c2.6.2 4.7 2.4 4.7 5.5"/>',
+  card:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 14h4M7 17h7"/>',
 };
 function svgIcon(name, cls){
   return `<svg class="icon-svg ${cls||''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`;
@@ -556,6 +579,20 @@ const SEED_CARTONS = [{"name": "72*4 شجرات", "size": "28*28*23", "notes": "
 /* ================= STATE ================= */
 let DB = null;
 let currentTab = 'dashboard';
+/* ================= AUTH (يوزرين: أدمن / أمين مخزن) ================= */
+const AUTH_KEY = 'egygulf-foods-auth-v1';
+let currentUser = null; // {role:'admin'|'warehouse'}
+const WAREHOUSE_TABS = ['purchases','raw','whManufacturing','whPackaging','whFinished'];
+function isTabAllowed(tabId){
+  if(!currentUser) return false;
+  if(currentUser.role==='admin') return true;
+  return WAREHOUSE_TABS.includes(tabId);
+}
+function firstAllowedTab(){
+  if(!currentUser) return 'dashboard';
+  if(currentUser.role==='admin') return 'dashboard';
+  return WAREHOUSE_TABS[0];
+}
 let saveTimer = null;
 
 const STORAGE_KEY = 'egygulf-foods-system-v1';
@@ -627,7 +664,7 @@ function freshDB(){
   const rollItems = SEED.rolls.map(r=>({id:uid(), name:r.name, category:'رولات', supplier:'', balance:r.balance, variant:r.flavor||'', barcode:'', notes:'', productionDate:'', expiryDate:'', history:[]}));
   const cartonItems = SEED_CARTONS.map(c=>({id:uid(), name:c.name, category:'كراتين', supplier:'', balance:c.balance||0, variant:c.size||'', barcode:c.barcode||'', notes:c.notes||'', productionDate:'', expiryDate:'', history:[]}));
   return {
-    settings:{ lowStockThreshold: 10, adminPassword:'admin123', orderSystemUrl:'https://amrentag.vercel.app/' },
+    settings:{ lowStockThreshold: 10, adminPassword:'admin123', warehousePassword:'wh123', orderSystemUrl:'https://amrentag.vercel.app/' },
     raw: [...rawItems, ...rollItems, ...cartonItems],
     production: SEED.production.map(p=>({id:uid(), date:p.date, order:p.order, item:p.item, flavor:p.flavor, drums:p.drums, produced:p.produced, notes:p.notes||''})),
     waste: SEED.waste.map(w=>({id:uid(), date:w.date, item:w.item, wasteType:w.wasteType, qty:w.qty, reason:w.reason||''})),
@@ -639,7 +676,8 @@ function freshDB(){
     transfers: [],
     dispatches: [],
     importedOrders: [],
-    suppliers: []
+    suppliers: [],
+    itemCard: []
   };
 }
 
@@ -648,8 +686,9 @@ async function loadDB(){
     const res = await StorageAPI.get(STORAGE_KEY, false);
     if(res && res.value){
       DB = JSON.parse(res.value);
-      if(!DB.settings) DB.settings = {lowStockThreshold:10, adminPassword:'admin123', orderSystemUrl:'https://amrentag.vercel.app/'};
+      if(!DB.settings) DB.settings = {lowStockThreshold:10, adminPassword:'admin123', warehousePassword:'wh123', orderSystemUrl:'https://amrentag.vercel.app/'};
       if(!DB.settings.adminPassword) DB.settings.adminPassword = 'admin123';
+      if(!DB.settings.warehousePassword) DB.settings.warehousePassword = 'wh123';
       if(!DB.settings.orderSystemUrl) DB.settings.orderSystemUrl = 'https://amrentag.vercel.app/';
       if(!DB.raw) DB.raw = [];
       DB.raw.forEach(r=>{
@@ -681,6 +720,7 @@ async function loadDB(){
       if(!DB.dispatches) DB.dispatches = [];
       if(!DB.importedOrders) DB.importedOrders = [];
       if(!DB.suppliers) DB.suppliers = [];
+      if(!DB.itemCard) DB.itemCard = [];
       await persist(true);
       return;
     }
@@ -753,6 +793,7 @@ const TABS = [
   {id:'whFinished', label:'مخزن الإنتاج التام', ic:'spark'},
   {id:'transfers', label:'التحويلات المخزنية', ic:'history'},
   {id:'suppliers', label:'الموردين', ic:'suppliers'},
+  {id:'itemCard', label:'كارتة الصنف', ic:'card'},
   {id:'customerOrders', label:'أوردرات العملاء', ic:'orders'},
   {id:'production', label:'الإنتاج اليومي', ic:'production'},
   {id:'orders', label:'الأوردرات', ic:'orders'},
@@ -768,6 +809,7 @@ const TITLES = {
   whFinished:['مخزن الإنتاج التام','أرصدة المنتج النهائي الجاهز'],
   transfers:['التحويلات المخزنية','تسجيل كل تحويل بين المخازن بدل الورق: من مخزن إلى مخزن'],
   suppliers:['الموردين','بيانات التواصل والأسعار لكل مورد'],
+  itemCard:['كارتة الصنف','رصيد افتتاحي، إضافة، صرف، ورصيد نهائي لأي صنف في أي مخزن'],
   customerOrders:['أوردرات العملاء','استورد ملف JSON من نظام إنشاء الأوردرات عشان تشوفهم هنا'],
   production:['الإنتاج اليومي','تسجيل أوردرات وكميات الإنتاج اليومية'],
   orders:['الأوردرات','الإنتاج مجمّعًا حسب كل عميل/أوردر'],
@@ -777,7 +819,8 @@ const TITLES = {
 
 function renderNav(){
   const nav = document.getElementById('navList');
-  nav.innerHTML = TABS.map(t=>{
+  const visibleTabs = TABS.filter(t=>isTabAllowed(t.id));
+  nav.innerHTML = visibleTabs.map(t=>{
     let count = '';
     if(t.id==='raw') count = DB.raw.length;
     else if(t.id==='production') count = DB.production.length;
@@ -790,6 +833,7 @@ function renderNav(){
     else if(t.id==='whFinished') count = DB.whFinished.length;
     else if(t.id==='transfers') count = DB.transfers.length;
     else if(t.id==='suppliers') count = DB.suppliers.length;
+    else if(t.id==='itemCard') count = DB.itemCard.length;
     else if(t.id==='customerOrders') count = (DB.importedOrders||[]).length;
     return `<button class="nav-item ${currentTab===t.id?'active':''}" data-tab="${t.id}">
       ${svgIcon(t.ic)}<span>${t.label}</span>
@@ -803,6 +847,7 @@ function renderNav(){
 }
 
 function setTab(tab){
+  if(!isTabAllowed(tab)) tab = firstAllowedTab();
   currentTab = tab;
   document.getElementById('pageTitle').textContent = TITLES[tab][0];
   document.getElementById('pageSub').textContent = TITLES[tab][1];
@@ -1238,6 +1283,28 @@ const CONFIGS = {
     filterKey:null,
     dateKey:'orderDate',
   },
+  itemCard:{
+    title:'كارتة الصنف', addLabel:'إضافة حركة جديدة',
+    fields:[
+      {key:'name', label:'اسم الصنف', type:'text', required:true},
+      {key:'date', label:'التاريخ', type:'date', required:true},
+      {key:'opening', label:'الرصيد الافتتاحي', type:'number', required:false, step:'0.01'},
+      {key:'added', label:'إضافة', type:'number', required:false, step:'0.01'},
+      {key:'removed', label:'صرف', type:'number', required:false, step:'0.01'},
+      {key:'closing', label:'الرصيد النهائي', type:'number', required:false, step:'0.01'},
+    ],
+    columns:[
+      {key:'name', label:'اسم الصنف'},
+      {key:'date', label:'التاريخ'},
+      {key:'opening', label:'الرصيد الافتتاحي'},
+      {key:'added', label:'إضافة'},
+      {key:'removed', label:'صرف'},
+      {key:'closing', label:'الرصيد النهائي'},
+    ],
+    searchKeys:['name'],
+    filterKey:null,
+    dateKey:'date',
+  },
 };
 
 let tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
@@ -1565,7 +1632,7 @@ function renderTableRows(tabId){
           </div>
         </td>`;
       }
-      if(col.key==='balance' || col.key==='qty' || col.key==='drums' || col.key==='produced'){
+      if(col.key==='balance' || col.key==='qty' || col.key==='drums' || col.key==='produced' || col.key==='opening' || col.key==='added' || col.key==='removed' || col.key==='closing'){
         const val = item[col.key];
         const isLow = col.key==='balance' && Number(val)<=DB.settings.lowStockThreshold;
         return `<td class="num" ${isLow ? 'style="color:var(--danger)"':''}>${fmtNum(val)}</td>`;
@@ -1984,7 +2051,10 @@ function openHistoryDrawer(tabId, item){
           <h3>${esc(item.name)}</h3>
           <div class="sub">${esc(item.category||item.flavor||'')}${item.supplier?' · '+esc(item.supplier):''} — سجل حركة الصرف والإضافة</div>
         </div>
-        <button class="modal-close" id="drawerClose">✕</button>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button class="btn btn-ghost btn-sm" id="printCardBtn">${svgIcon('print','sm')} كارتة الصنف</button>
+          <button class="modal-close" id="drawerClose">✕</button>
+        </div>
       </div>
       <div class="drawer-body">
         <div class="cards-grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:22px;">
@@ -2019,6 +2089,73 @@ function openHistoryDrawer(tabId, item){
     </div>`;
   document.getElementById('drawerOverlay').addEventListener('click', closeDrawer);
   document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+  document.getElementById('printCardBtn').addEventListener('click', ()=> printItemCard(item));
+}
+
+function buildItemLedger(item){
+  const IN_TYPES = ['اضافه','شراء'];
+  const OUT_TYPES = ['صرف','مرتجع'];
+  const hist = [...(item.history||[])].sort((a,b)=>{
+    const ta = a.ts || a.date || '';
+    const tb = b.ts || b.date || '';
+    return ta.localeCompare(tb);
+  });
+  const netChange = hist.reduce((s,h)=>{
+    const qty = Number(h.qty)||0;
+    if(IN_TYPES.includes(h.type)) return s+qty;
+    if(OUT_TYPES.includes(h.type)) return s-qty;
+    return s;
+  },0);
+  let running = (Number(item.balance)||0) - netChange;
+  return hist.map(h=>{
+    const qty = Number(h.qty)||0;
+    const isIn = IN_TYPES.includes(h.type);
+    const isOut = OUT_TYPES.includes(h.type);
+    const opening = running;
+    const added = isIn ? qty : 0;
+    const removed = isOut ? qty : 0;
+    const closing = opening + added - removed;
+    running = closing;
+    return {date:h.date, ts:h.ts, opening, added, removed, closing, notes:h.notes};
+  });
+}
+
+function printItemCard(item){
+  const ledger = buildItemLedger(item);
+  if(!ledger.length){ showToast('لا يوجد حركات مسجلة بعد على هذا الصنف'); return; }
+  const now = new Date();
+  const generatedAt = now.toLocaleString('ar-EG', { dateStyle:'medium', timeStyle:'short' });
+  const rowsHtml = ledger.map(r=>`
+    <tr>
+      <td>${r.ts ? fmtDateTimeAr(r.ts) : fmtDateAr(r.date)}</td>
+      <td>${fmtNum(r.opening)}</td>
+      <td>${r.added ? fmtNum(r.added) : '—'}</td>
+      <td>${r.removed ? fmtNum(r.removed) : '—'}</td>
+      <td>${fmtNum(r.closing)}</td>
+      <td>${r.notes ? esc(r.notes) : '—'}</td>
+    </tr>`).join('');
+  const totalAdded = ledger.reduce((s,r)=>s+r.added,0);
+  const totalRemoved = ledger.reduce((s,r)=>s+r.removed,0);
+
+  document.getElementById('printArea').innerHTML = `
+    <div class="pr-header">
+      <div>
+        <div class="pr-brand">egy<span>gulf</span> Foods</div>
+        <div class="pr-title">كارتة الصنف — ${esc(item.name)}</div>
+      </div>
+      <div class="pr-meta">
+        الرصيد الحالي: ${fmtNum(item.balance)}<br>
+        تاريخ الطباعة: ${generatedAt}
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>التاريخ</th><th>الرصيد الافتتاحي</th><th>إضافة</th><th>صرف</th><th>الرصيد النهائي</th><th>ملاحظات</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr><td>الإجمالي</td><td></td><td>${fmtNum(totalAdded)}</td><td>${fmtNum(totalRemoved)}</td><td>${fmtNum(item.balance)}</td><td></td></tr></tfoot>
+    </table>
+    <div class="pr-foot">EgyGulf Foods — نظام إدارة المخازن والإنتاج</div>
+  `;
+  window.print();
 }
 
 /* ================= ORDERS TAB ================= */
@@ -2500,64 +2637,20 @@ function initNotifBell(){
   });
 }
 
-/* ================= ADMIN LOGIN (بوابة استخدام بسيطة — مش حماية أمنية حقيقية) ================= */
-let isAdmin = false;
+/* ================= منطقة المستخدم في الهيدر (تسجيل الدخول بقى على مستوى النظام كله) ================= */
+let isAdmin = false; // = currentUser.role==='admin' — متسيبة عشان باقي الكود بيعتمد عليها
 
 function renderAdminArea(){
   const area = document.getElementById('adminArea');
-  if(!area) return;
-  if(isAdmin){
-    area.innerHTML = `
-      <button class="btn btn-ghost btn-sm" id="adminSettingsBtn" title="إعدادات الأدمن">${svgIcon('edit','sm')} إعدادات</button>
-      <button class="btn btn-ghost btn-sm" id="adminLogoutBtn">خروج (أدمن)</button>`;
-    document.getElementById('adminSettingsBtn').addEventListener('click', openAdminSettingsModal);
-    document.getElementById('adminLogoutBtn').addEventListener('click', ()=>{
-      isAdmin = false;
-      renderAdminArea();
-      if(currentTab==='customerOrders') renderExternalOrdersTab();
-      showToast('تم الخروج من وضع الأدمن');
-    });
-  } else {
-    area.innerHTML = `<button class="btn btn-ghost btn-sm" id="adminLoginBtn">دخول الأدمن</button>`;
-    document.getElementById('adminLoginBtn').addEventListener('click', openAdminLoginModal);
-  }
-}
-
-function openAdminLoginModal(){
-  document.getElementById('modalRoot').innerHTML = `
-    <div class="modal-overlay" id="overlay">
-      <div class="modal">
-        <div class="modal-head"><h3>دخول الأدمن</h3><button class="modal-close" id="closeX">✕</button></div>
-        <div class="modal-body">
-          <div class="field"><label>كلمة السر</label><input type="password" id="f_pass" placeholder="اكتب كلمة سر الأدمن"></div>
-          <div class="muted" style="font-size:12px;">ده حماية استخدام بسيطة لتحديد مين يقدر يفتح نظام إنشاء الأوردرات — مش تشفير أمني كامل.</div>
-        </div>
-        <div class="modal-foot">
-          <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
-          <button class="btn btn-primary" id="loginBtn">دخول</button>
-        </div>
-      </div>
-    </div>`;
-  const overlay = document.getElementById('overlay');
-  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
-  document.getElementById('closeX').addEventListener('click', closeModal);
-  document.getElementById('cancelBtn').addEventListener('click', closeModal);
-  const passInput = document.getElementById('f_pass');
-  const tryLogin = ()=>{
-    const pass = passInput.value;
-    if(pass === (DB.settings.adminPassword || 'admin123')){
-      isAdmin = true;
-      closeModal();
-      renderAdminArea();
-      if(currentTab==='customerOrders') renderExternalOrdersTab();
-      showToast('تم الدخول كأدمن');
-    } else {
-      showToast('كلمة السر غلط');
-    }
-  };
-  document.getElementById('loginBtn').addEventListener('click', tryLogin);
-  passInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') tryLogin(); });
-  passInput.focus();
+  if(!area || !currentUser) return;
+  const roleLabel = currentUser.role==='admin' ? 'أدمن' : 'أمين مخزن';
+  area.innerHTML = `
+    <span class="pill pill-navy" style="font-size:12px;">${roleLabel}</span>
+    ${currentUser.role==='admin' ? `<button class="btn btn-ghost btn-sm" id="adminSettingsBtn" title="إعدادات الأدمن">${svgIcon('edit','sm')} إعدادات</button>` : ''}
+    <button class="btn btn-ghost btn-sm" id="userLogoutBtn">تسجيل الخروج</button>`;
+  const settingsBtn = document.getElementById('adminSettingsBtn');
+  if(settingsBtn) settingsBtn.addEventListener('click', openAdminSettingsModal);
+  document.getElementById('userLogoutBtn').addEventListener('click', logoutUser);
 }
 
 function openAdminSettingsModal(){
@@ -2572,6 +2665,10 @@ function openAdminSettingsModal(){
           <div class="field"><label>تغيير كلمة سر الأدمن</label>
             <input type="password" id="f_newpass" placeholder="اسيبها فاضية لو مش هتغيّرها">
           </div>
+          <div class="field"><label>تغيير كلمة سر أمين المخزن</label>
+            <input type="password" id="f_newpass_wh" placeholder="اسيبها فاضية لو مش هتغيّرها">
+          </div>
+          <div class="muted" style="font-size:12px;">أمين المخزن بيشوف بس: المشتريات + كل المخازن (الخامات، التصنيع، التعبئة والتغليف، الإنتاج التام).</div>
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
@@ -2586,8 +2683,10 @@ function openAdminSettingsModal(){
   document.getElementById('saveBtn').addEventListener('click', async ()=>{
     const url = document.getElementById('f_url').value.trim();
     const newPass = document.getElementById('f_newpass').value;
+    const newPassWh = document.getElementById('f_newpass_wh').value;
     DB.settings.orderSystemUrl = url;
     if(newPass) DB.settings.adminPassword = newPass;
+    if(newPassWh) DB.settings.warehousePassword = newPassWh;
     await persist();
     closeModal();
     if(currentTab==='customerOrders') renderExternalOrdersTab();
@@ -2837,18 +2936,70 @@ function openDispatchModal(order){
   });
 }
 
+/* ================= تسجيل الدخول ================= */
+function showLoginScreen(){
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('loginScreen').classList.remove('hidden');
+  const passInput = document.getElementById('loginPass');
+  const roleSelect = document.getElementById('loginRole');
+  const errBox = document.getElementById('loginError');
+  const submit = ()=>{
+    const role = roleSelect.value;
+    const pass = passInput.value;
+    const expected = role==='admin' ? (DB.settings.adminPassword||'admin123') : (DB.settings.warehousePassword||'wh123');
+    if(pass === expected){
+      currentUser = {role};
+      try{ localStorage.setItem(AUTH_KEY, JSON.stringify(currentUser)); }catch(e){ /* ignore */ }
+      errBox.classList.add('hidden');
+      passInput.value = '';
+      enterApp();
+    } else {
+      errBox.textContent = 'كلمة السر غلط';
+      errBox.classList.remove('hidden');
+    }
+  };
+  document.getElementById('loginSubmitBtn').onclick = submit;
+  passInput.onkeydown = (e)=>{ if(e.key==='Enter') submit(); };
+  passInput.focus();
+}
+
+function logoutUser(){
+  currentUser = null;
+  isAdmin = false;
+  try{ localStorage.removeItem(AUTH_KEY); }catch(e){ /* ignore */ }
+  document.getElementById('app').classList.add('hidden');
+  showLoginScreen();
+}
+
+function enterApp(){
+  isAdmin = (currentUser && currentUser.role==='admin');
+  currentTab = firstAllowedTab();
+  document.getElementById('pageTitle').textContent = TITLES[currentTab][0];
+  document.getElementById('pageSub').textContent = TITLES[currentTab][1];
+  renderNav();
+  renderContent();
+  renderAdminArea();
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+}
+
 /* ================= BOOT ================= */
 async function boot(){
   await loadTheme();
   document.getElementById('themeToggle').addEventListener('click', toggleTheme);
   await loadDB();
-  renderNav();
-  renderContent();
-  renderAdminArea();
   initNotifBell();
   updateNotifBell();
-  document.getElementById('loading').classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
+  let stored = null;
+  try{ stored = JSON.parse(localStorage.getItem(AUTH_KEY)||'null'); }catch(e){ /* ignore */ }
+  if(stored && (stored.role==='admin' || stored.role==='warehouse')){
+    currentUser = stored;
+    enterApp();
+  } else {
+    showLoginScreen();
+  }
 }
 
 document.getElementById('menuToggle').addEventListener('click', ()=>{
