@@ -2541,15 +2541,10 @@ function crProductRowHtml(idx, showPrice){
   return `
   <div class="cr-product-row" data-idx="${idx}" style="display:flex;gap:8px;align-items:flex-end;">
     <div class="field" style="flex:2;margin:0;"><label>${idx===0?'المنتج *':''}</label>
-      <input type="text" class="cr_p_name" list="crItemsList" placeholder="اسم المنتج">
+      <input type="text" class="cr_p_name" placeholder="اسم المنتج">
     </div>
     <div class="field" style="flex:1.4;margin:0;"><label>${idx===0?'الطعم':''}</label>
-      <select class="cr_p_flavor">
-        <option value="">كل الأطعمة</option>
-        ${getKnownFlavors().map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('')}
-        <option value="__custom__">طعم آخر...</option>
-      </select>
-      <input type="text" class="cr_p_flavor_custom hidden" placeholder="اكتب الطعم" style="margin-top:6px;">
+      <input type="text" class="cr_p_flavor" placeholder="كل الأطعمة">
     </div>
     <div class="field" style="flex:1;margin:0;"><label>${idx===0?'الكمية *':''}</label>
       <input type="number" step="0.01" class="cr_p_qty" placeholder="الكمية">
@@ -2562,15 +2557,12 @@ function crProductRowHtml(idx, showPrice){
 }
 
 function openCairoRequestModal(){
-  const rawNames = [...new Set(DB.raw.map(r=>r.name))].sort((a,b)=>a.localeCompare(b,'ar'));
   crProductRowCount = 0;
-  const firstType = 'sample';
   document.getElementById('modalRoot').innerHTML = `
     <div class="modal-overlay" id="overlay">
       <div class="modal" style="max-width:560px;">
         <div class="modal-head"><h3>طلب جديد من القاهرة</h3><button class="modal-close" id="closeX">✕</button></div>
         <div class="modal-body">
-          <datalist id="crItemsList">${rawNames.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
           <div class="field"><label>نوع الطلب *</label>
             <select id="f_type">
               <option value="sample">عينة (منتجات بس)</option>
@@ -2600,21 +2592,12 @@ function openCairoRequestModal(){
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
 
   const rowsWrap = document.getElementById('crProductRows');
-  function wireFlavorSelect(row){
-    const sel = row.querySelector('.cr_p_flavor');
-    const custom = row.querySelector('.cr_p_flavor_custom');
-    sel.addEventListener('change', ()=>{
-      if(sel.value==='__custom__'){ custom.classList.remove('hidden'); custom.focus(); }
-      else { custom.classList.add('hidden'); custom.value=''; }
-    });
-  }
   function addRow(){
     const div = document.createElement('div');
     div.innerHTML = crProductRowHtml(crProductRowCount, document.getElementById('f_type').value==='order');
     const rowEl = div.firstElementChild;
     rowsWrap.appendChild(rowEl);
     crProductRowCount++;
-    wireFlavorSelect(rowEl);
     wireRemoveButtons();
   }
   function wireRemoveButtons(){
@@ -2641,8 +2624,7 @@ function openCairoRequestModal(){
       const name = row.querySelector('.cr_p_name').value.trim();
       const qty = Number(row.querySelector('.cr_p_qty').value);
       const price = type==='order' ? Number(row.querySelector('.cr_p_price').value)||0 : undefined;
-      const flavorSel = row.querySelector('.cr_p_flavor').value;
-      const flavor = flavorSel==='__custom__' ? row.querySelector('.cr_p_flavor_custom').value.trim() : flavorSel;
+      const flavor = row.querySelector('.cr_p_flavor').value.trim();
       return {name, qty, price, flavor};
     }).filter(p=> p.name && p.qty>0);
     if(!products.length){ showToast('اكتب منتج واحد على الأقل بكمية صحيحة'); return; }
