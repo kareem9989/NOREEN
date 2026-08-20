@@ -329,6 +329,9 @@ tr.detail-row.dim td{color:var(--ink-soft);}
 @media (max-width:900px){
   .sidebar{position:fixed;right:0;top:0;bottom:0;z-index:60;transform:translateX(100%);transition:.2s;visibility:hidden;}
   .sidebar.open{transform:translateX(0);visibility:visible;}
+  .menu-toggle{position:relative;z-index:70;}
+  .sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:55;}
+  .sidebar-backdrop.show{display:block;}
   .menu-toggle{display:flex !important;}
   .content{padding:18px 14px 60px;}
   .topbar{padding:14px 16px;}
@@ -610,6 +613,7 @@ tr.detail-row.dim td{color:var(--ink-soft);}
 </div>
 
 <div class="app hidden" id="app">
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
       <div class="logo-plate">
@@ -979,6 +983,8 @@ function setTab(tab){
   document.getElementById('pageTitle').textContent = TITLES[tab][0];
   document.getElementById('pageSub').textContent = TITLES[tab][1];
   document.getElementById('sidebar').classList.remove('open');
+  const bd0 = document.getElementById('sidebarBackdrop');
+  if(bd0) bd0.classList.remove('show');
   renderNav();
   renderContent();
 }
@@ -3634,6 +3640,11 @@ async function boot(){
 
 document.getElementById('menuToggle').addEventListener('click', ()=>{
   document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebarBackdrop').classList.toggle('show');
+});
+document.getElementById('sidebarBackdrop').addEventListener('click', ()=>{
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarBackdrop').classList.remove('show');
 });
 
 boot();
