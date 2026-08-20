@@ -492,6 +492,7 @@ tr.detail-row.dim td{color:var(--ink-soft);}
       <select id="loginRole">
         <option value="admin">أدمن (كل الصلاحيات)</option>
         <option value="warehouse">أمين مخزن (المشتريات والمخازن فقط)</option>
+        <option value="cairo">سيلز القاهرة (طلبات العينات والأوردرات فقط)</option>
       </select>
     </div>
     <div class="field" style="margin-bottom:12px;">
@@ -596,15 +597,18 @@ let currentTab = 'dashboard';
 /* ================= AUTH (يوزرين: أدمن / أمين مخزن) ================= */
 const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
-const WAREHOUSE_TABS = ['purchaseRequests','purchases','raw','whManufacturing','whPackaging','whFinished'];
+const WAREHOUSE_TABS = ['purchaseRequests','purchases','raw','whManufacturing','whPackaging','whFinished','cairoRequests'];
+const CAIRO_TABS = ['cairoRequests'];
 function isTabAllowed(tabId){
   if(!currentUser) return false;
   if(currentUser.role==='admin') return true;
+  if(currentUser.role==='cairo') return CAIRO_TABS.includes(tabId);
   return WAREHOUSE_TABS.includes(tabId);
 }
 function firstAllowedTab(){
   if(!currentUser) return 'dashboard';
   if(currentUser.role==='admin') return 'dashboard';
+  if(currentUser.role==='cairo') return CAIRO_TABS[0];
   return WAREHOUSE_TABS[0];
 }
 let saveTimer = null;
@@ -678,7 +682,7 @@ function freshDB(){
   const rollItems = SEED.rolls.map(r=>({id:uid(), name:r.name, category:'رولات', supplier:'', balance:r.balance, variant:r.flavor||'', barcode:'', notes:'', productionDate:'', expiryDate:'', history:[]}));
   const cartonItems = SEED_CARTONS.map(c=>({id:uid(), name:c.name, category:'كراتين', supplier:'', balance:c.balance||0, variant:c.size||'', barcode:c.barcode||'', notes:c.notes||'', productionDate:'', expiryDate:'', history:[]}));
   return {
-    settings:{ lowStockThreshold: 10, adminPassword:'admin123', warehousePassword:'wh123', orderSystemUrl:'https://amrentag.vercel.app/' },
+    settings:{ lowStockThreshold: 10, adminPassword:'admin123', warehousePassword:'wh123', cairoSalesPassword:'cairo123', orderSystemUrl:'https://amrentag.vercel.app/' },
     raw: [...rawItems, ...rollItems, ...cartonItems],
     production: SEED.production.map(p=>({id:uid(), date:p.date, order:p.order, item:p.item, flavor:p.flavor, drums:p.drums, produced:p.produced, notes:p.notes||''})),
     waste: SEED.waste.map(w=>({id:uid(), date:w.date, item:w.item, wasteType:w.wasteType, qty:w.qty, reason:w.reason||''})),
@@ -694,7 +698,8 @@ function freshDB(){
     suppliers: [],
     itemCard: [],
     auditLog: [],
-    knownUsers: []
+    knownUsers: [],
+    cairoRequests: []
   };
 }
 
@@ -703,9 +708,10 @@ async function loadDB(){
     const res = await StorageAPI.get(STORAGE_KEY, false);
     if(res && res.value){
       DB = JSON.parse(res.value);
-      if(!DB.settings) DB.settings = {lowStockThreshold:10, adminPassword:'admin123', warehousePassword:'wh123', orderSystemUrl:'https://amrentag.vercel.app/'};
+      if(!DB.settings) DB.settings = {lowStockThreshold:10, adminPassword:'admin123', warehousePassword:'wh123', cairoSalesPassword:'cairo123', orderSystemUrl:'https://amrentag.vercel.app/'};
       if(!DB.settings.adminPassword) DB.settings.adminPassword = 'admin123';
       if(!DB.settings.warehousePassword) DB.settings.warehousePassword = 'wh123';
+      if(!DB.settings.cairoSalesPassword) DB.settings.cairoSalesPassword = 'cairo123';
       if(!DB.settings.orderSystemUrl) DB.settings.orderSystemUrl = 'https://amrentag.vercel.app/';
       if(!DB.raw) DB.raw = [];
       DB.raw.forEach(r=>{
@@ -741,6 +747,7 @@ async function loadDB(){
       if(!DB.itemCard) DB.itemCard = [];
       if(!DB.auditLog) DB.auditLog = [];
       if(!DB.knownUsers) DB.knownUsers = [];
+      if(!DB.cairoRequests) DB.cairoRequests = [];
       await persist(true);
       return;
     }
@@ -806,6 +813,7 @@ function showToast(msg){
 /* ================= NAV ================= */
 const TABS = [
   {id:'dashboard', label:'لوحة القيادة', ic:'dashboard'},
+  {id:'cairoRequests', label:'طلبات القاهرة', ic:'bell'},
   {id:'purchaseRequests', label:'طلبات مشتريات', ic:'orders'},
   {id:'purchases', label:'المشتريات', ic:'download'},
   {id:'raw', label:'مخزن الخامات', ic:'raw'},
@@ -824,6 +832,7 @@ const TABS = [
 ];
 const TITLES = {
   dashboard:['لوحة القيادة','نظرة عامة على المخازن والإنتاج'],
+  cairoRequests:['طلبات القاهرة','طلبات عينات وأوردرات فريق القاهرة عشان طنطا تجهزها'],
   purchaseRequests:['طلبات مشتريات','اطلب خامة محتاجينها والأدمن يوافق عليها قبل الشراء'],
   purchases:['المشتريات','تسجيل مشتريات الخامات الواردة من الموردين'],
   raw:['مخزن الخامات','كل حاجة بتدخل المصنع: خامات، رولات، كراتين، وأي فئة تانية — مقسّمة فئات فرعية'],
@@ -852,6 +861,7 @@ function renderNav(){
     else if(t.id==='waste') count = DB.waste.length;
     else if(t.id==='breakdowns') count = DB.breakdowns.length;
     else if(t.id==='purchaseRequests') count = (DB.purchaseRequests||[]).filter(r=>r.status==='pending').length || '';
+    else if(t.id==='cairoRequests') count = (DB.cairoRequests||[]).filter(r=>r.status!=='delivered').length || '';
     else if(t.id==='purchases') count = DB.purchases.length;
     else if(t.id==='whManufacturing') count = DB.whManufacturing.length;
     else if(t.id==='whPackaging') count = DB.whPackaging.length;
@@ -2299,6 +2309,254 @@ function cascadeReturnToPrev(tabId, item, qty, note){
   });
 }
 
+/* ================= طلبات القاهرة (Cairo Requests: عينات وأوردرات) ================= */
+const CR_TYPE_LABEL = {
+  sample: {label:'عينة', cls:'pill-navy'},
+  order: {label:'أوردر', cls:'pill-ok'},
+};
+const CR_STATUS_LABEL = {
+  new: {label:'جديد', cls:'pill-warn'},
+  preparing: {label:'قيد التجهيز', cls:'pill-navy'},
+  ready: {label:'جاهز', cls:'pill-ok'},
+  delivered: {label:'تم التسليم', cls:'pill-ok'},
+};
+const CR_STATUS_ORDER = ['new','preparing','ready','delivered'];
+
+function crProductsSummary(r){
+  const list = r.products || [];
+  return list.map(p=> `${esc(p.name)}${p.qty? ` (${fmtNum(p.qty)})` : ''}`).join('، ') || '—';
+}
+function crOrderTotal(r){
+  const list = r.products || [];
+  return list.reduce((sum,p)=> sum + (Number(p.qty)||0) * (Number(p.price)||0), 0);
+}
+
+function renderCairoRequestsTab(){
+  const list = [...(DB.cairoRequests||[])].sort((a,b)=> (b.ts||b.date||'').localeCompare(a.ts||a.date||''));
+  let html = `
+  <div class="panel">
+    <div class="panel-head">
+      <h2>طلبات القاهرة <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
+      <div class="toolbar"><button class="btn btn-gold" id="addCairoRequestBtn">+ طلب جديد</button></div>
+    </div>
+    <div class="panel-body">
+      ${list.length? `
+      <div class="table-wrap"><table>
+        <thead><tr><th>النوع</th><th>التاريخ</th><th>السيلز</th><th>العميل</th><th>المنتجات</th><th>الإجمالي</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>
+        ${list.map(r=>{
+          const ty = CR_TYPE_LABEL[r.type] || CR_TYPE_LABEL.sample;
+          const st = CR_STATUS_LABEL[r.status] || CR_STATUS_LABEL.new;
+          const nextIdx = CR_STATUS_ORDER.indexOf(r.status)+1;
+          const nextStatus = CR_STATUS_ORDER[nextIdx];
+          const actions = [];
+          actions.push(`<button class="btn btn-sm btn-ghost" data-act="view" data-id="${r.id}">تفاصيل</button>`);
+          if(nextStatus){
+            actions.push(`<button class="btn btn-sm btn-ghost" data-act="advance" data-id="${r.id}" data-next="${nextStatus}">${CR_STATUS_LABEL[nextStatus].label}</button>`);
+          }
+          actions.push(`<button class="icon-btn danger" data-act="delete" data-id="${r.id}" title="حذف">${svgIcon('trash','sm')}</button>`);
+          return `
+          <tr data-id="${r.id}">
+            <td><span class="pill ${ty.cls}">${ty.label}</span></td>
+            <td>${fmtDateAr(r.date)}</td>
+            <td>${esc(r.type==='order'? (r.salesName||r.requestedByName||'—') : (r.requestedByName||'—'))}</td>
+            <td>${r.type==='order' && r.customerName? esc(r.customerName) : '—'}</td>
+            <td class="muted" style="white-space:normal;max-width:280px;">${crProductsSummary(r)}</td>
+            <td class="num">${r.type==='order' ? fmtNum(crOrderTotal(r)) : '—'}</td>
+            <td><span class="pill ${st.cls}">${st.label}</span></td>
+            <td><div class="btn-icon-row">${actions.join('')}</div></td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state">${svgIcon('bell')}<div>لسه مفيش طلبات من القاهرة — اضغط "طلب جديد" عشان تبدأ</div></div>`}
+    </div>
+  </div>`;
+  document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
+  document.getElementById('addCairoRequestBtn').addEventListener('click', openCairoRequestModal);
+  document.querySelectorAll('[data-act="view"]').forEach(b=>b.addEventListener('click', ()=> openCairoRequestDetailModal(b.dataset.id)));
+  document.querySelectorAll('[data-act="advance"]').forEach(b=>b.addEventListener('click', ()=> advanceCairoRequest(b.dataset.id, b.dataset.next)));
+  document.querySelectorAll('[data-act="delete"]').forEach(b=>b.addEventListener('click', ()=>{
+    const r = (DB.cairoRequests||[]).find(x=>x.id===b.dataset.id);
+    openConfirmModal(`هل تريد حذف هذا الطلب؟`, async ()=>{
+      DB.cairoRequests = DB.cairoRequests.filter(x=>x.id!==b.dataset.id);
+      logAction(`حذف طلب قاهرة (${r? CR_TYPE_LABEL[r.type].label : ''})`);
+      await persist();
+      renderCairoRequestsTab();
+      renderNav();
+      showToast('تم حذف الطلب');
+    });
+  }));
+}
+
+function openCairoRequestDetailModal(id){
+  const r = (DB.cairoRequests||[]).find(x=>x.id===id);
+  if(!r) return;
+  const ty = CR_TYPE_LABEL[r.type] || CR_TYPE_LABEL.sample;
+  const st = CR_STATUS_LABEL[r.status] || CR_STATUS_LABEL.new;
+  const rows = (r.products||[]).map(p=> `
+    <tr>
+      <td>${esc(p.name)}</td>
+      <td class="num">${fmtNum(p.qty)}</td>
+      ${r.type==='order'? `<td class="num">${p.price!==undefined && p.price!==''? fmtNum(p.price): '—'}</td><td class="num">${fmtNum((Number(p.qty)||0)*(Number(p.price)||0))}</td>` : ''}
+    </tr>`).join('');
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay">
+      <div class="modal" style="max-width:560px;">
+        <div class="modal-head"><h3>تفاصيل الطلب — <span class="pill ${ty.cls}">${ty.label}</span></h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-body">
+          <div class="muted" style="font-size:12.5px;">التاريخ: ${fmtDateAr(r.date)} — الحالة: <span class="pill ${st.cls}">${st.label}</span></div>
+          ${r.type==='order' ? `
+          <div style="display:flex;flex-direction:column;gap:4px;font-size:13.5px;">
+            <div><b>السيلز:</b> ${esc(r.salesName||r.requestedByName||'—')}</div>
+            <div><b>اسم العميل:</b> ${esc(r.customerName||'—')}</div>
+            <div><b>رقم العميل:</b> ${esc(r.customerPhone||'—')}</div>
+          </div>` : `<div style="font-size:13.5px;"><b>طلب بواسطة:</b> ${esc(r.requestedByName||'—')}</div>`}
+          <div class="table-wrap"><table>
+            <thead><tr><th>المنتج</th><th>الكمية</th>${r.type==='order'?'<th>السعر</th><th>الإجمالي</th>':''}</tr></thead>
+            <tbody>${rows}</tbody>
+            ${r.type==='order'? `<tfoot><tr><td colspan="3" style="font-weight:800">إجمالي الأوردر</td><td class="num" style="font-weight:800">${fmtNum(crOrderTotal(r))}</td></tr></tfoot>`:''}
+          </table></div>
+          ${r.notes? `<div class="muted" style="font-size:13px;">ملاحظات: ${esc(r.notes)}</div>` : ''}
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelBtn">إغلاق</button>
+        </div>
+      </div>
+    </div>`;
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+}
+
+let crProductRowCount = 0;
+function crProductRowHtml(idx, showPrice){
+  return `
+  <div class="cr-product-row" data-idx="${idx}" style="display:flex;gap:8px;align-items:flex-end;">
+    <div class="field" style="flex:2;margin:0;"><label>${idx===0?'المنتج *':''}</label>
+      <input type="text" class="cr_p_name" list="crItemsList" placeholder="اسم المنتج">
+    </div>
+    <div class="field" style="flex:1;margin:0;"><label>${idx===0?'الكمية *':''}</label>
+      <input type="number" step="0.01" class="cr_p_qty" placeholder="الكمية">
+    </div>
+    <div class="field cr-price-field" style="flex:1;margin:0;${showPrice?'':'display:none;'}"><label>${idx===0?'السعر':''}</label>
+      <input type="number" step="0.01" class="cr_p_price" placeholder="السعر">
+    </div>
+    <button type="button" class="icon-btn danger cr-remove-row" title="حذف المنتج">${svgIcon('trash','sm')}</button>
+  </div>`;
+}
+
+function openCairoRequestModal(){
+  const rawNames = [...new Set(DB.raw.map(r=>r.name))].sort((a,b)=>a.localeCompare(b,'ar'));
+  crProductRowCount = 0;
+  const firstType = 'sample';
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay">
+      <div class="modal" style="max-width:560px;">
+        <div class="modal-head"><h3>طلب جديد من القاهرة</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-body">
+          <datalist id="crItemsList">${rawNames.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+          <div class="field"><label>نوع الطلب *</label>
+            <select id="f_type">
+              <option value="sample">عينة (منتجات بس)</option>
+              <option value="order">أوردر (تفاصيل كاملة)</option>
+            </select>
+          </div>
+          <div id="orderFieldsWrap" style="display:none;flex-direction:column;gap:14px;">
+            <div class="field"><label>اسم السيلز *</label><input type="text" id="f_salesName" placeholder="اسم مسؤول المبيعات"></div>
+            <div class="field"><label>اسم العميل *</label><input type="text" id="f_customerName" placeholder="اسم العميل"></div>
+            <div class="field"><label>رقم العميل *</label><input type="tel" id="f_customerPhone" placeholder="رقم موبايل العميل"></div>
+          </div>
+          <div class="field"><label>المنتجات *</label>
+            <div id="crProductRows" style="display:flex;flex-direction:column;gap:8px;"></div>
+            <button type="button" class="btn btn-ghost btn-sm" id="crAddRowBtn" style="margin-top:8px;">+ منتج تاني</button>
+          </div>
+          <div class="field"><label>ملاحظات (اختياري)</label><input type="text" id="f_notes" placeholder="أي تفاصيل إضافية"></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
+          <button class="btn btn-primary" id="saveBtn">إرسال الطلب</button>
+        </div>
+      </div>
+    </div>`;
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+
+  const rowsWrap = document.getElementById('crProductRows');
+  function addRow(){
+    const div = document.createElement('div');
+    div.innerHTML = crProductRowHtml(crProductRowCount, document.getElementById('f_type').value==='order');
+    rowsWrap.appendChild(div.firstElementChild);
+    crProductRowCount++;
+    wireRemoveButtons();
+  }
+  function wireRemoveButtons(){
+    rowsWrap.querySelectorAll('.cr-remove-row').forEach(btn=>{
+      btn.onclick = ()=>{
+        if(rowsWrap.children.length>1){ btn.closest('.cr-product-row').remove(); }
+        else { showToast('لازم تسيب منتج واحد على الأقل'); }
+      };
+    });
+  }
+  addRow();
+  document.getElementById('crAddRowBtn').addEventListener('click', addRow);
+
+  document.getElementById('f_type').addEventListener('change', (e)=>{
+    const isOrder = e.target.value==='order';
+    document.getElementById('orderFieldsWrap').style.display = isOrder? 'flex':'none';
+    document.querySelectorAll('.cr-price-field').forEach(f=> f.style.display = isOrder? '' : 'none');
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const type = document.getElementById('f_type').value;
+    const notes = document.getElementById('f_notes').value.trim();
+    const products = [...rowsWrap.querySelectorAll('.cr-product-row')].map(row=>{
+      const name = row.querySelector('.cr_p_name').value.trim();
+      const qty = Number(row.querySelector('.cr_p_qty').value);
+      const price = type==='order' ? Number(row.querySelector('.cr_p_price').value)||0 : undefined;
+      return {name, qty, price};
+    }).filter(p=> p.name && p.qty>0);
+    if(!products.length){ showToast('اكتب منتج واحد على الأقل بكمية صحيحة'); return; }
+    let salesName='', customerName='', customerPhone='';
+    if(type==='order'){
+      salesName = document.getElementById('f_salesName').value.trim();
+      customerName = document.getElementById('f_customerName').value.trim();
+      customerPhone = document.getElementById('f_customerPhone').value.trim();
+      if(!salesName || !customerName || !customerPhone){ showToast('كمّل بيانات السيلز والعميل'); return; }
+    }
+    if(!DB.cairoRequests) DB.cairoRequests = [];
+    DB.cairoRequests.unshift({
+      id: uid(), date: todayISO(), ts: new Date().toISOString(),
+      type, products, salesName, customerName, customerPhone, notes, status:'new',
+      requestedByName: currentUser? currentUser.name : '',
+      requestedByPhone: currentUser? currentUser.phone : '',
+    });
+    logAction(`طلب ${CR_TYPE_LABEL[type].label} من القاهرة (${products.length} منتج)`);
+    await persist();
+    closeModal();
+    renderCairoRequestsTab();
+    renderNav();
+    showToast('تم إرسال الطلب لطنطا');
+  });
+}
+
+function advanceCairoRequest(id, nextStatus){
+  const r = (DB.cairoRequests||[]).find(x=>x.id===id);
+  if(!r) return;
+  r.status = nextStatus;
+  r.updatedByName = currentUser? currentUser.name : '';
+  r.updatedAt = new Date().toISOString();
+  const statusLabel = CR_STATUS_LABEL[nextStatus] ? CR_STATUS_LABEL[nextStatus].label : nextStatus;
+  logAction(`${statusLabel} — طلب قاهرة (${CR_TYPE_LABEL[r.type].label})`);
+  persist().then(()=>{
+    renderCairoRequestsTab();
+    renderNav();
+    showToast(`تم تحديث حالة الطلب: ${statusLabel}`);
+  });
+}
+
 /* ================= طلبات مشتريات (Purchase Requests) ================= */
 const PR_STATUS_LABEL = {
   pending: {label:'قيد المراجعة', cls:'pill-warn'},
@@ -2714,6 +2972,7 @@ function renderContent(){
   if(currentTab==='dashboard') renderDashboard();
   else if(currentTab==='orders') renderOrdersTab();
   else if(currentTab==='purchaseRequests') renderPurchaseRequestsTab();
+  else if(currentTab==='cairoRequests') renderCairoRequestsTab();
   else if(currentTab==='purchases') renderPurchasesTab();
   else if(currentTab==='transfers') renderTransfersTab();
   else if(currentTab==='customerOrders') renderExternalOrdersTab();
@@ -2830,7 +3089,7 @@ function renderAuditLogTab(){
             <td style="white-space:nowrap;">${fmtDateTimeAr(a.ts)}</td>
             <td style="font-weight:700">${esc(a.name||'—')}</td>
             <td>${esc(a.phone||'—')}</td>
-            <td>${a.role==='admin'?'أدمن':(a.role==='warehouse'?'أمين مخزن':'—')}</td>
+            <td>${a.role==='admin'?'أدمن':(a.role==='cairo'?'سيلز القاهرة':(a.role==='warehouse'?'أمين مخزن':'—'))}</td>
             <td>${esc(a.action||'—')}</td>
           </tr>`).join('')}
         </tbody>
@@ -2846,7 +3105,7 @@ let isAdmin = false; // = currentUser.role==='admin' — متسيبة عشان �
 function renderAdminArea(){
   const area = document.getElementById('adminArea');
   if(!area || !currentUser) return;
-  const roleLabel = currentUser.role==='admin' ? 'أدمن' : 'أمين مخزن';
+  const roleLabel = currentUser.role==='admin' ? 'أدمن' : (currentUser.role==='cairo' ? 'سيلز القاهرة' : 'أمين مخزن');
   area.innerHTML = `
     <span class="pill pill-navy" style="font-size:12px;" title="${esc(currentUser.phone||'')}">${esc(currentUser.name||'')} — ${roleLabel}</span>
     ${currentUser.role==='admin' ? `<button class="btn btn-ghost btn-sm" id="adminSettingsBtn" title="إعدادات الأدمن">${svgIcon('edit','sm')} إعدادات</button>` : ''}
@@ -2871,7 +3130,10 @@ function openAdminSettingsModal(){
           <div class="field"><label>تغيير كلمة سر أمين المخزن</label>
             <input type="password" id="f_newpass_wh" placeholder="اسيبها فاضية لو مش هتغيّرها">
           </div>
-          <div class="muted" style="font-size:12px;">أمين المخزن بيشوف بس: المشتريات + كل المخازن (الخامات، التصنيع، التعبئة والتغليف، الإنتاج التام).</div>
+          <div class="field"><label>تغيير كلمة سر سيلز القاهرة</label>
+            <input type="password" id="f_newpass_cairo" placeholder="اسيبها فاضية لو مش هتغيّرها">
+          </div>
+          <div class="muted" style="font-size:12px;">أمين المخزن بيشوف بس: المشتريات + كل المخازن + طلبات القاهرة. سيلز القاهرة بيشوف بس تاب طلبات القاهرة.</div>
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
@@ -2887,12 +3149,15 @@ function openAdminSettingsModal(){
     const url = document.getElementById('f_url').value.trim();
     const newPass = document.getElementById('f_newpass').value;
     const newPassWh = document.getElementById('f_newpass_wh').value;
+    const newPassCairo = document.getElementById('f_newpass_cairo').value;
     DB.settings.orderSystemUrl = url;
     if(newPass) DB.settings.adminPassword = newPass;
     if(newPassWh) DB.settings.warehousePassword = newPassWh;
+    if(newPassCairo) DB.settings.cairoSalesPassword = newPassCairo;
     const changes = [];
     if(newPass) changes.push('كلمة سر الأدمن');
     if(newPassWh) changes.push('كلمة سر أمين المخزن');
+    if(newPassCairo) changes.push('كلمة سر سيلز القاهرة');
     changes.push('لينك نظام الأوردرات');
     logAction(`عدّل إعدادات النظام (${changes.join('، ')})`);
     await persist();
@@ -3213,7 +3478,7 @@ function showLoginScreen(){
       errBox.classList.remove('hidden');
       return;
     }
-    const expected = role==='admin' ? (DB.settings.adminPassword||'admin123') : (DB.settings.warehousePassword||'wh123');
+    const expected = role==='admin' ? (DB.settings.adminPassword||'admin123') : (role==='cairo' ? (DB.settings.cairoSalesPassword||'cairo123') : (DB.settings.warehousePassword||'wh123'));
     if(pass === expected){
       currentUser = {role, name, phone};
       try{ localStorage.setItem(AUTH_KEY, JSON.stringify(currentUser)); }catch(e){ /* ignore */ }
@@ -3223,7 +3488,7 @@ function showLoginScreen(){
       const existing = DB.knownUsers.find(u=> u.name.trim().toLowerCase()===name.toLowerCase() && u.phone.trim()===phone);
       if(existing){ existing.role = role; }
       else { DB.knownUsers.push({name, phone, role}); }
-      logAction(`تسجيل دخول (${role==='admin'?'أدمن':'أمين مخزن'})`);
+      logAction(`تسجيل دخول (${role==='admin'?'أدمن':(role==='cairo'?'سيلز القاهرة':'أمين مخزن')})`);
       persist(true);
       enterApp();
     } else {
@@ -3268,7 +3533,7 @@ async function boot(){
   updateNotifBell();
   let stored = null;
   try{ stored = JSON.parse(localStorage.getItem(AUTH_KEY)||'null'); }catch(e){ /* ignore */ }
-  if(stored && (stored.role==='admin' || stored.role==='warehouse') && stored.name && stored.phone){
+  if(stored && (stored.role==='admin' || stored.role==='warehouse' || stored.role==='cairo') && stored.name && stored.phone){
     currentUser = stored;
     enterApp();
   } else {
