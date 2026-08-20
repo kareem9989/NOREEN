@@ -582,32 +582,14 @@ tr.detail-row.dim td{color:var(--ink-soft);}
       <div class="muted" style="font-size:12.5px;margin-top:4px;">نظام إدارة المخازن والإنتاج — سجّل دخولك للمتابعة</div>
     </div>
     <div class="field" style="margin-bottom:12px;">
-      <label>نوع المستخدم</label>
-      <select id="loginRole">
-        <option value="admin">أدمن (كل الصلاحيات)</option>
-        <option value="warehouse">أمين مخزن (المشتريات والمخازن فقط)</option>
-        <option value="cairo">سيلز القاهرة (طلبات العينات والأوردرات فقط)</option>
-      </select>
-    </div>
-    <div class="field" style="margin-bottom:12px;">
-      <label>مين بيدخل؟</label>
-      <select id="loginSavedUser">
-        <option value="new">+ مستخدم جديد</option>
-      </select>
-    </div>
-    <div class="field" style="margin-bottom:12px;">
-      <label>الاسم</label>
-      <input type="text" id="loginName" placeholder="اكتب اسمك">
-    </div>
-    <div class="field" style="margin-bottom:12px;">
-      <label>رقم الموبايل</label>
-      <input type="tel" id="loginPhone" placeholder="اكتب رقم موبايلك">
+      <label>اسم المستخدم</label>
+      <input type="text" id="loginUsername" placeholder="اكتب اسم المستخدم" autocomplete="username">
     </div>
     <div class="field" style="margin-bottom:6px;">
       <label>كلمة السر</label>
-      <input type="password" id="loginPass" placeholder="اكتب كلمة السر">
+      <input type="password" id="loginPass" placeholder="اكتب كلمة السر" autocomplete="current-password">
     </div>
-    <div id="loginError" class="hidden" style="color:var(--danger);font-size:12.5px;margin-bottom:10px;">كلمة السر غلط</div>
+    <div id="loginError" class="hidden" style="color:var(--danger);font-size:12.5px;margin-bottom:10px;">اسم المستخدم أو كلمة السر غلط</div>
     <button class="btn btn-primary" id="loginSubmitBtn" style="width:100%;margin-top:10px;">دخول</button>
   </div>
 </div>
@@ -772,12 +754,21 @@ const StorageAPI = (function(){
 
 function uid(){ return 'i' + Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
 
+function defaultUsers(){
+  return [
+    {id:uid(), username:'admin', password:'admin123', role:'admin', name:'أدمن'},
+    {id:uid(), username:'egygulf', password:'wh123', role:'warehouse', name:'أمين مخزن طنطا'},
+    {id:uid(), username:'egycairo', password:'cairo123', role:'cairo', name:'سيلز القاهرة'},
+  ];
+}
+
 function freshDB(){
   const rawItems = SEED.raw.map(r=>({id:uid(), name:r.name, category:r.category, supplier:r.supplier, balance:r.balance, variant:'', barcode:'', notes:'', productionDate:'', expiryDate:'', history:[]}));
   const rollItems = SEED.rolls.map(r=>({id:uid(), name:r.name, category:'رولات', supplier:'', balance:r.balance, variant:r.flavor||'', barcode:'', notes:'', productionDate:'', expiryDate:'', history:[]}));
   const cartonItems = SEED_CARTONS.map(c=>({id:uid(), name:c.name, category:'كراتين', supplier:'', balance:c.balance||0, variant:c.size||'', barcode:c.barcode||'', notes:c.notes||'', productionDate:'', expiryDate:'', history:[]}));
   return {
-    settings:{ lowStockThreshold: 10, adminPassword:'admin123', warehousePassword:'wh123', cairoSalesPassword:'cairo123', orderSystemUrl:'https://amrentag.vercel.app/' },
+    settings:{ lowStockThreshold: 10, orderSystemUrl:'https://amrentag.vercel.app/' },
+    users: defaultUsers(),
     raw: [...rawItems, ...rollItems, ...cartonItems],
     production: SEED.production.map(p=>({id:uid(), date:p.date, order:p.order, item:p.item, flavor:p.flavor, drums:p.drums, produced:p.produced, notes:p.notes||''})),
     waste: SEED.waste.map(w=>({id:uid(), date:w.date, item:w.item, wasteType:w.wasteType, qty:w.qty, reason:w.reason||''})),
@@ -803,11 +794,22 @@ async function loadDB(){
     const res = await StorageAPI.get(STORAGE_KEY, false);
     if(res && res.value){
       DB = JSON.parse(res.value);
-      if(!DB.settings) DB.settings = {lowStockThreshold:10, adminPassword:'admin123', warehousePassword:'wh123', cairoSalesPassword:'cairo123', orderSystemUrl:'https://amrentag.vercel.app/'};
-      if(!DB.settings.adminPassword) DB.settings.adminPassword = 'admin123';
-      if(!DB.settings.warehousePassword) DB.settings.warehousePassword = 'wh123';
-      if(!DB.settings.cairoSalesPassword) DB.settings.cairoSalesPassword = 'cairo123';
+      if(!DB.settings) DB.settings = {lowStockThreshold:10, orderSystemUrl:'https://amrentag.vercel.app/'};
       if(!DB.settings.orderSystemUrl) DB.settings.orderSystemUrl = 'https://amrentag.vercel.app/';
+      if(!DB.users || !Array.isArray(DB.users) || !DB.users.length){
+        // migration من نظام الباسورد القديم (لو موجود) لنظام اليوزرات الجديد
+        const oldAdminPass = DB.settings.adminPassword || 'admin123';
+        const oldWhPass = DB.settings.warehousePassword || 'wh123';
+        const oldCairoPass = DB.settings.cairoSalesPassword || 'cairo123';
+        DB.users = [
+          {id:uid(), username:'admin', password:oldAdminPass, role:'admin', name:'أدمن'},
+          {id:uid(), username:'egygulf', password:oldWhPass, role:'warehouse', name:'أمين مخزن طنطا'},
+          {id:uid(), username:'egycairo', password:oldCairoPass, role:'cairo', name:'سيلز القاهرة'},
+        ];
+      }
+      delete DB.settings.adminPassword;
+      delete DB.settings.warehousePassword;
+      delete DB.settings.cairoSalesPassword;
       if(!DB.raw) DB.raw = [];
       DB.raw.forEach(r=>{
         if(r.variant===undefined) r.variant='';
@@ -2640,7 +2642,7 @@ function openCairoRequestModal(){
       id: uid(), date: todayISO(), ts: new Date().toISOString(),
       type, products, salesName, customerName, customerPhone, notes, status:'new',
       requestedByName: currentUser? currentUser.name : '',
-      requestedByPhone: currentUser? currentUser.phone : '',
+      requestedByUsername: currentUser? currentUser.username : '',
     });
     logAction(`طلب ${CR_TYPE_LABEL[type].label} من القاهرة (${products.length} منتج)`);
     await persist();
@@ -2697,7 +2699,7 @@ function renderPurchaseRequestsTab(){
           if(isAdmin && r.status==='approved'){
             actions.push(`<button class="btn btn-sm btn-ghost" data-act="mark-purchased" data-id="${r.id}">تم الشراء</button>`);
           }
-          if(isAdmin || (currentUser && r.requestedByPhone===currentUser.phone && r.status==='pending')){
+          if(isAdmin || (currentUser && r.requestedByUsername===currentUser.username && r.status==='pending')){
             actions.push(`<button class="icon-btn danger" data-act="delete" data-id="${r.id}" title="حذف">${svgIcon('trash','sm')}</button>`);
           }
           return `
@@ -2706,7 +2708,7 @@ function renderPurchaseRequestsTab(){
             <td style="font-weight:700">${esc(r.itemName)}</td>
             <td class="num">${fmtNum(r.qty)}</td>
             <td class="muted">${r.notes? esc(r.notes) : '—'}</td>
-            <td>${esc(r.requestedByName||'—')}${r.requestedByPhone?` — ${esc(r.requestedByPhone)}`:''}</td>
+            <td>${esc(r.requestedByName||'—')}</td>
             <td><span class="pill ${st.cls}">${st.label}</span>${r.status!=='pending' && r.reviewedByName? `<div class="muted" style="font-size:11px;margin-top:3px;">بواسطة ${esc(r.reviewedByName)}</div>`:''}</td>
             <td><div class="btn-icon-row">${actions.join('')}</div></td>
           </tr>`;
@@ -2767,7 +2769,7 @@ function openPurchaseRequestModal(){
       id: uid(), date: todayISO(), ts: new Date().toISOString(),
       itemName, qty, notes, status:'pending',
       requestedByName: currentUser? currentUser.name : '',
-      requestedByPhone: currentUser? currentUser.phone : '',
+      requestedByUsername: currentUser? currentUser.username : '',
       requestedByRole: currentUser? currentUser.role : ''
     });
     logAction(`طلب شراء "${itemName}" — ${fmtNum(qty)}`);
@@ -2785,7 +2787,7 @@ function reviewPurchaseRequest(id, status){
   const doIt = async ()=>{
     r.status = status;
     r.reviewedByName = currentUser? currentUser.name : '';
-    r.reviewedByPhone = currentUser? currentUser.phone : '';
+    r.reviewedByUsername = currentUser? currentUser.username : '';
     r.reviewedAt = new Date().toISOString();
     const statusLabel = PR_STATUS_LABEL[status] ? PR_STATUS_LABEL[status].label : status;
     logAction(`${statusLabel} — طلب شراء "${r.itemName}" (${fmtNum(r.qty)})`);
@@ -3191,13 +3193,13 @@ function renderAuditLogTab(){
     <div class="panel-body">
       ${list.length? `
       <div class="table-wrap"><table>
-        <thead><tr><th>الوقت</th><th>المستخدم</th><th>رقم الموبايل</th><th>الدور</th><th>الإجراء</th></tr></thead>
+        <thead><tr><th>الوقت</th><th>المستخدم</th><th>اسم الدخول</th><th>الدور</th><th>الإجراء</th></tr></thead>
         <tbody>
         ${list.map(a=>`
           <tr>
             <td style="white-space:nowrap;">${fmtDateTimeAr(a.ts)}</td>
             <td style="font-weight:700">${esc(a.name||'—')}</td>
-            <td>${esc(a.phone||'—')}</td>
+            <td>${esc(a.username||'—')}</td>
             <td>${a.role==='admin'?'أدمن':(a.role==='cairo'?'سيلز القاهرة':(a.role==='warehouse'?'أمين مخزن':'—'))}</td>
             <td>${esc(a.action||'—')}</td>
           </tr>`).join('')}
@@ -3216,7 +3218,7 @@ function renderAdminArea(){
   if(!area || !currentUser) return;
   const roleLabel = currentUser.role==='admin' ? 'أدمن' : (currentUser.role==='cairo' ? 'سيلز القاهرة' : 'أمين مخزن');
   area.innerHTML = `
-    <span class="pill pill-navy" style="font-size:12px;" title="${esc(currentUser.phone||'')}">${esc(currentUser.name||'')} — ${roleLabel}</span>
+    <span class="pill pill-navy" style="font-size:12px;" title="${esc(currentUser.username||'')}">${esc(currentUser.name||'')} — ${roleLabel}</span>
     ${currentUser.role==='admin' ? `<button class="btn btn-ghost btn-sm" id="adminSettingsBtn" title="إعدادات الأدمن">${svgIcon('edit','sm')} إعدادات</button>` : ''}
     <button class="btn btn-ghost btn-sm" id="userLogoutBtn">تسجيل الخروج</button>`;
   const settingsBtn = document.getElementById('adminSettingsBtn');
@@ -3224,25 +3226,38 @@ function renderAdminArea(){
   document.getElementById('userLogoutBtn').addEventListener('click', logoutUser);
 }
 
+const ROLE_LABELS = {admin:'أدمن', warehouse:'أمين مخزن', cairo:'سيلز القاهرة'};
+
 function openAdminSettingsModal(){
+  renderAdminSettingsModalContent();
+}
+
+function renderAdminSettingsModalContent(){
+  const users = DB.users || [];
   document.getElementById('modalRoot').innerHTML = `
     <div class="modal-overlay" id="overlay">
-      <div class="modal">
+      <div class="modal" style="max-width:520px;max-height:88vh;overflow-y:auto;">
         <div class="modal-head"><h3>إعدادات الأدمن</h3><button class="modal-close" id="closeX">✕</button></div>
         <div class="modal-body">
           <div class="field"><label>لينك نظام إنشاء الأوردرات</label>
             <input type="text" id="f_url" value="${esc(DB.settings.orderSystemUrl||'')}" placeholder="https://...">
           </div>
-          <div class="field"><label>تغيير كلمة سر الأدمن</label>
-            <input type="password" id="f_newpass" placeholder="اسيبها فاضية لو مش هتغيّرها">
+
+          <div style="border-top:1px solid var(--border);margin-top:4px;padding-top:14px;">
+            <div style="font-weight:800;font-size:14px;color:var(--navy);margin-bottom:8px;">المستخدمين</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              ${users.map(u=>`
+                <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border-radius:9px;">
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-weight:700;font-size:13px;">${esc(u.username)} <span class="muted" style="font-weight:500;">— ${esc(u.name||'')}</span></div>
+                    <div class="muted" style="font-size:11.5px;">${ROLE_LABELS[u.role]||u.role}</div>
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-sm" data-edit-user="${u.id}">تعديل</button>
+                  <button type="button" class="icon-btn danger" data-del-user="${u.id}" title="حذف">${svgIcon('trash','sm')}</button>
+                </div>`).join('')}
+            </div>
+            <button type="button" class="btn btn-gold btn-sm" id="addUserBtn" style="margin-top:10px;">+ إضافة مستخدم</button>
           </div>
-          <div class="field"><label>تغيير كلمة سر أمين المخزن</label>
-            <input type="password" id="f_newpass_wh" placeholder="اسيبها فاضية لو مش هتغيّرها">
-          </div>
-          <div class="field"><label>تغيير كلمة سر سيلز القاهرة</label>
-            <input type="password" id="f_newpass_cairo" placeholder="اسيبها فاضية لو مش هتغيّرها">
-          </div>
-          <div class="muted" style="font-size:12px;">أمين المخزن بيشوف بس: المشتريات + كل المخازن + طلبات القاهرة. سيلز القاهرة بيشوف بس تاب طلبات القاهرة.</div>
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
@@ -3254,25 +3269,89 @@ function openAdminSettingsModal(){
   overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
   document.getElementById('closeX').addEventListener('click', closeModal);
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  document.getElementById('addUserBtn').addEventListener('click', ()=> openUserEditModal(null));
+  document.querySelectorAll('[data-edit-user]').forEach(b=>b.addEventListener('click', ()=> openUserEditModal(b.dataset.editUser)));
+  document.querySelectorAll('[data-del-user]').forEach(b=>b.addEventListener('click', ()=>{
+    const u = users.find(x=>x.id===b.dataset.delUser);
+    if(!u) return;
+    if(users.length<=1){ showToast('لازم يفضل مستخدم واحد على الأقل'); return; }
+    if(u.username===currentUser.username){ showToast('متقدرش تحذف المستخدم اللي داخل بيه دلوقتي'); return; }
+    openConfirmModal(`هل تريد حذف المستخدم "${esc(u.username)}"؟`, async ()=>{
+      DB.users = DB.users.filter(x=>x.id!==u.id);
+      logAction(`حذف مستخدم "${u.username}"`);
+      await persist();
+      showToast('تم حذف المستخدم');
+      renderAdminSettingsModalContent();
+    });
+  }));
   document.getElementById('saveBtn').addEventListener('click', async ()=>{
     const url = document.getElementById('f_url').value.trim();
-    const newPass = document.getElementById('f_newpass').value;
-    const newPassWh = document.getElementById('f_newpass_wh').value;
-    const newPassCairo = document.getElementById('f_newpass_cairo').value;
     DB.settings.orderSystemUrl = url;
-    if(newPass) DB.settings.adminPassword = newPass;
-    if(newPassWh) DB.settings.warehousePassword = newPassWh;
-    if(newPassCairo) DB.settings.cairoSalesPassword = newPassCairo;
-    const changes = [];
-    if(newPass) changes.push('كلمة سر الأدمن');
-    if(newPassWh) changes.push('كلمة سر أمين المخزن');
-    if(newPassCairo) changes.push('كلمة سر سيلز القاهرة');
-    changes.push('لينك نظام الأوردرات');
-    logAction(`عدّل إعدادات النظام (${changes.join('، ')})`);
+    logAction(`عدّل إعدادات النظام (لينك نظام الأوردرات)`);
     await persist();
     closeModal();
     if(currentTab==='customerOrders') renderExternalOrdersTab();
     showToast('تم حفظ الإعدادات');
+  });
+}
+
+function openUserEditModal(userId){
+  const u = userId ? (DB.users||[]).find(x=>x.id===userId) : null;
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay2">
+      <div class="modal">
+        <div class="modal-head"><h3>${u?'تعديل مستخدم':'إضافة مستخدم جديد'}</h3><button class="modal-close" id="closeX2">✕</button></div>
+        <div class="modal-body">
+          <div class="field"><label>اسم المستخدم (Username) *</label>
+            <input type="text" id="f_username" value="${u?esc(u.username):''}" placeholder="مثال: egycairo2" ${u?'':''}>
+          </div>
+          <div class="field"><label>الاسم المعروض</label>
+            <input type="text" id="f_dispname" value="${u?esc(u.name||''):''}" placeholder="مثال: محمد سيلز">
+          </div>
+          <div class="field"><label>كلمة السر ${u?'(اسيبها فاضية لو مش هتغيّرها)':'*'}</label>
+            <input type="password" id="f_userpass" placeholder="${u?'اكتب كلمة سر جديدة لو عايز تغيّرها':'اكتب كلمة السر'}">
+          </div>
+          <div class="field"><label>الصلاحية *</label>
+            <select id="f_userrole">
+              <option value="admin" ${u&&u.role==='admin'?'selected':''}>أدمن (كل الصلاحيات)</option>
+              <option value="warehouse" ${u&&u.role==='warehouse'?'selected':''}>أمين مخزن (المشتريات والمخازن + طلبات القاهرة)</option>
+              <option value="cairo" ${u&&u.role==='cairo'?'selected':''}>سيلز القاهرة (طلبات القاهرة بس)</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelBtn2">إلغاء</button>
+          <button class="btn btn-primary" id="saveUserBtn">حفظ</button>
+        </div>
+      </div>
+    </div>`;
+  const overlay = document.getElementById('overlay2');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) renderAdminSettingsModalContent(); });
+  document.getElementById('closeX2').addEventListener('click', renderAdminSettingsModalContent);
+  document.getElementById('cancelBtn2').addEventListener('click', renderAdminSettingsModalContent);
+  document.getElementById('saveUserBtn').addEventListener('click', async ()=>{
+    const username = document.getElementById('f_username').value.trim().toLowerCase();
+    const name = document.getElementById('f_dispname').value.trim();
+    const pass = document.getElementById('f_userpass').value;
+    const role = document.getElementById('f_userrole').value;
+    if(!username){ showToast('اكتب اسم مستخدم'); return; }
+    if(!u && !pass){ showToast('اكتب كلمة سر للمستخدم الجديد'); return; }
+    const dup = (DB.users||[]).find(x=> x.username.toLowerCase()===username && (!u || x.id!==u.id));
+    if(dup){ showToast('اسم المستخدم ده مستخدم قبل كده'); return; }
+    if(!DB.users) DB.users = [];
+    if(u){
+      u.username = username;
+      u.name = name;
+      u.role = role;
+      if(pass) u.password = pass;
+      logAction(`تعديل مستخدم "${username}"`);
+    } else {
+      DB.users.push({id:uid(), username, password:pass, role, name});
+      logAction(`إضافة مستخدم جديد "${username}" (${ROLE_LABELS[role]})`);
+    }
+    await persist();
+    showToast('تم الحفظ');
+    renderAdminSettingsModalContent();
   });
 }
 
@@ -3524,7 +3603,7 @@ function openDispatchModal(order){
 /* ================= تسجيل الدخول ================= */
 function userTag(){
   if(!currentUser) return '—';
-  return `${currentUser.name}${currentUser.phone?' - '+currentUser.phone:''}`;
+  return `${currentUser.name}${currentUser.username?' - '+currentUser.username:''}`;
 }
 
 function logAction(text){
@@ -3533,7 +3612,7 @@ function logAction(text){
     id: uid(),
     ts: new Date().toISOString(),
     name: currentUser ? currentUser.name : '',
-    phone: currentUser ? currentUser.phone : '',
+    username: currentUser ? currentUser.username : '',
     role: currentUser ? currentUser.role : '',
     action: text
   });
@@ -3545,68 +3624,33 @@ function showLoginScreen(){
   document.getElementById('app').classList.add('hidden');
   document.getElementById('loginScreen').classList.remove('hidden');
   const passInput = document.getElementById('loginPass');
-  const roleSelect = document.getElementById('loginRole');
-  const nameInput = document.getElementById('loginName');
-  const phoneInput = document.getElementById('loginPhone');
-  const savedSelect = document.getElementById('loginSavedUser');
+  const userInput = document.getElementById('loginUsername');
   const errBox = document.getElementById('loginError');
 
-  const knownUsers = DB.knownUsers || [];
-  savedSelect.innerHTML = `<option value="new">+ مستخدم جديد</option>` +
-    knownUsers.map((u,i)=>`<option value="${i}">${esc(u.name)} — ${esc(u.phone)}</option>`).join('');
-
-  savedSelect.onchange = ()=>{
-    if(savedSelect.value==='new'){
-      nameInput.value = '';
-      phoneInput.value = '';
-      nameInput.disabled = false;
-      phoneInput.disabled = false;
-      nameInput.focus();
-    } else {
-      const u = knownUsers[Number(savedSelect.value)];
-      if(u){
-        nameInput.value = u.name;
-        phoneInput.value = u.phone;
-        if(u.role) roleSelect.value = u.role;
-      }
-      nameInput.disabled = true;
-      phoneInput.disabled = true;
-      passInput.focus();
-    }
-  };
-  savedSelect.value = 'new';
-  savedSelect.onchange();
-
   const submit = ()=>{
-    const role = roleSelect.value;
+    const username = userInput.value.trim().toLowerCase();
     const pass = passInput.value;
-    const name = nameInput.value.trim();
-    const phone = phoneInput.value.trim();
-    if(!name || !phone){
-      errBox.textContent = 'من فضلك اكتب اسمك ورقم موبايلك';
+    if(!username || !pass){
+      errBox.textContent = 'اكتب اسم المستخدم وكلمة السر';
       errBox.classList.remove('hidden');
       return;
     }
-    const expected = role==='admin' ? (DB.settings.adminPassword||'admin123') : (role==='cairo' ? (DB.settings.cairoSalesPassword||'cairo123') : (DB.settings.warehousePassword||'wh123'));
-    if(pass === expected){
-      currentUser = {role, name, phone};
+    const user = (DB.users||[]).find(u=> u.username.toLowerCase()===username);
+    if(user && user.password===pass){
+      currentUser = {username:user.username, role:user.role, name:user.name||user.username};
       try{ localStorage.setItem(AUTH_KEY, JSON.stringify(currentUser)); }catch(e){ /* ignore */ }
       errBox.classList.add('hidden');
       passInput.value = '';
-      if(!DB.knownUsers) DB.knownUsers = [];
-      const existing = DB.knownUsers.find(u=> u.name.trim().toLowerCase()===name.toLowerCase() && u.phone.trim()===phone);
-      if(existing){ existing.role = role; }
-      else { DB.knownUsers.push({name, phone, role}); }
-      logAction(`تسجيل دخول (${role==='admin'?'أدمن':(role==='cairo'?'سيلز القاهرة':'أمين مخزن')})`);
+      logAction(`تسجيل دخول (${user.name||user.username})`);
       persist(true);
       enterApp();
     } else {
-      errBox.textContent = 'كلمة السر غلط';
+      errBox.textContent = 'اسم المستخدم أو كلمة السر غلط';
       errBox.classList.remove('hidden');
     }
   };
   document.getElementById('loginSubmitBtn').onclick = submit;
-  [passInput, nameInput, phoneInput].forEach(inp=>{
+  [passInput, userInput].forEach(inp=>{
     inp.onkeydown = (e)=>{ if(e.key==='Enter') submit(); };
   });
 }
@@ -3642,7 +3686,7 @@ async function boot(){
   updateNotifBell();
   let stored = null;
   try{ stored = JSON.parse(localStorage.getItem(AUTH_KEY)||'null'); }catch(e){ /* ignore */ }
-  if(stored && (stored.role==='admin' || stored.role==='warehouse' || stored.role==='cairo') && stored.name && stored.phone){
+  if(stored && stored.username && (DB.users||[]).some(u=> u.username===stored.username)){
     currentUser = stored;
     enterApp();
   } else {
