@@ -2421,7 +2421,16 @@ const CR_STATUS_ORDER = ['new','preparing','ready','delivered'];
 
 function crProductsSummary(r){
   const list = r.products || [];
-  return list.map(p=> `${esc(p.name)}${p.qty? ` (${fmtNum(p.qty)})` : ''}`).join('، ') || '—';
+  return list.map(p=> {
+    const fl = p.flavor? p.flavor : 'كل الأطعمة';
+    return `${esc(p.name)} - ${esc(fl)}${p.qty? ` (${fmtNum(p.qty)})` : ''}`;
+  }).join('، ') || '—';
+}
+function getKnownFlavors(){
+  const set = new Set();
+  (DB.raw||[]).forEach(r=>{ if(r.variant) set.add(r.variant); });
+  (SEED.production||[]).forEach(p=>{ if(p.flavor) set.add(p.flavor); });
+  return [...set].sort((a,b)=>a.localeCompare(b,'ar'));
 }
 function crOrderTotal(r){
   const list = r.products || [];
@@ -2493,6 +2502,7 @@ function openCairoRequestDetailModal(id){
   const rows = (r.products||[]).map(p=> `
     <tr>
       <td>${esc(p.name)}</td>
+      <td>${p.flavor? esc(p.flavor) : 'كل الأطعمة'}</td>
       <td class="num">${fmtNum(p.qty)}</td>
       ${r.type==='order'? `<td class="num">${p.price!==undefined && p.price!==''? fmtNum(p.price): '—'}</td><td class="num">${fmtNum((Number(p.qty)||0)*(Number(p.price)||0))}</td>` : ''}
     </tr>`).join('');
@@ -2509,9 +2519,9 @@ function openCairoRequestDetailModal(id){
             <div><b>رقم العميل:</b> ${esc(r.customerPhone||'—')}</div>
           </div>` : `<div style="font-size:13.5px;"><b>طلب بواسطة:</b> ${esc(r.requestedByName||'—')}</div>`}
           <div class="table-wrap"><table>
-            <thead><tr><th>المنتج</th><th>الكمية</th>${r.type==='order'?'<th>السعر</th><th>الإجمالي</th>':''}</tr></thead>
+            <thead><tr><th>المنتج</th><th>الطعم</th><th>الكمية</th>${r.type==='order'?'<th>السعر</th><th>الإجمالي</th>':''}</tr></thead>
             <tbody>${rows}</tbody>
-            ${r.type==='order'? `<tfoot><tr><td colspan="3" style="font-weight:800">إجمالي الأوردر</td><td class="num" style="font-weight:800">${fmtNum(crOrderTotal(r))}</td></tr></tfoot>`:''}
+            ${r.type==='order'? `<tfoot><tr><td colspan="4" style="font-weight:800">إجمالي الأوردر</td><td class="num" style="font-weight:800">${fmtNum(crOrderTotal(r))}</td></tr></tfoot>`:''}
           </table></div>
           ${r.notes? `<div class="muted" style="font-size:13px;">ملاحظات: ${esc(r.notes)}</div>` : ''}
         </div>
@@ -2532,6 +2542,14 @@ function crProductRowHtml(idx, showPrice){
   <div class="cr-product-row" data-idx="${idx}" style="display:flex;gap:8px;align-items:flex-end;">
     <div class="field" style="flex:2;margin:0;"><label>${idx===0?'المنتج *':''}</label>
       <input type="text" class="cr_p_name" list="crItemsList" placeholder="اسم المنتج">
+    </div>
+    <div class="field" style="flex:1.4;margin:0;"><label>${idx===0?'الطعم':''}</label>
+      <select class="cr_p_flavor">
+        <option value="">كل الأطعمة</option>
+        ${getKnownFlavors().map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('')}
+        <option value="__custom__">طعم آخر...</option>
+      </select>
+      <input type="text" class="cr_p_flavor_custom hidden" placeholder="اكتب الطعم" style="margin-top:6px;">
     </div>
     <div class="field" style="flex:1;margin:0;"><label>${idx===0?'الكمية *':''}</label>
       <input type="number" step="0.01" class="cr_p_qty" placeholder="الكمية">
@@ -2582,11 +2600,21 @@ function openCairoRequestModal(){
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
 
   const rowsWrap = document.getElementById('crProductRows');
+  function wireFlavorSelect(row){
+    const sel = row.querySelector('.cr_p_flavor');
+    const custom = row.querySelector('.cr_p_flavor_custom');
+    sel.addEventListener('change', ()=>{
+      if(sel.value==='__custom__'){ custom.classList.remove('hidden'); custom.focus(); }
+      else { custom.classList.add('hidden'); custom.value=''; }
+    });
+  }
   function addRow(){
     const div = document.createElement('div');
     div.innerHTML = crProductRowHtml(crProductRowCount, document.getElementById('f_type').value==='order');
-    rowsWrap.appendChild(div.firstElementChild);
+    const rowEl = div.firstElementChild;
+    rowsWrap.appendChild(rowEl);
     crProductRowCount++;
+    wireFlavorSelect(rowEl);
     wireRemoveButtons();
   }
   function wireRemoveButtons(){
@@ -2613,7 +2641,9 @@ function openCairoRequestModal(){
       const name = row.querySelector('.cr_p_name').value.trim();
       const qty = Number(row.querySelector('.cr_p_qty').value);
       const price = type==='order' ? Number(row.querySelector('.cr_p_price').value)||0 : undefined;
-      return {name, qty, price};
+      const flavorSel = row.querySelector('.cr_p_flavor').value;
+      const flavor = flavorSel==='__custom__' ? row.querySelector('.cr_p_flavor_custom').value.trim() : flavorSel;
+      return {name, qty, price, flavor};
     }).filter(p=> p.name && p.qty>0);
     if(!products.length){ showToast('اكتب منتج واحد على الأقل بكمية صحيحة'); return; }
     let salesName='', customerName='', customerPhone='';
