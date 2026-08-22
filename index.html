@@ -3390,7 +3390,10 @@ function renderExternalOrdersTab(){
             <td>${fmtDateAr(o.due)}</td>
             <td class="num">${fmtNum((Number(o.totalProd)||0)/1000)}</td>
             <td>${dispatched? '<span class="pill pill-ok">تم الصرف ✓</span>' : '<span class="pill pill-warn">لسه متصرفش</span>'}</td>
-            <td><button class="btn btn-sm btn-ghost" data-act="detail" data-id="${esc(o.id)}">التفاصيل</button></td>
+            <td><div class="btn-icon-row">
+              <button class="btn btn-sm btn-ghost" data-act="detail" data-id="${esc(o.id)}">التفاصيل</button>
+              ${isAdmin? `<button class="icon-btn danger" data-act="delete" data-id="${esc(o.id)}" title="حذف الأوردر">${svgIcon('trash','sm')}</button>` : ''}
+            </div></td>
           </tr>`;
         }).join('')}
         </tbody>
@@ -3399,6 +3402,19 @@ function renderExternalOrdersTab(){
   </div>`;
   document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
   document.querySelectorAll('[data-act="detail"]').forEach(b=>b.addEventListener('click', ()=> openExternalOrderDetail(b.dataset.id)));
+  document.querySelectorAll('[data-act="delete"]').forEach(b=>b.addEventListener('click', ()=>{
+    const o = (DB.importedOrders||[]).find(x=>x.id===b.dataset.id);
+    if(!o) return;
+    if(findDispatch(o.id)){ showToast('الأوردر ده اتصرف بالفعل، متقدرش تحذفه'); return; }
+    openConfirmModal(`هل تريد حذف الأوردر "${esc(o.ono||o.cust||'')}"؟`, async ()=>{
+      DB.importedOrders = DB.importedOrders.filter(x=>x.id!==o.id);
+      logAction(`حذف أوردر عميل "${o.ono||''} — ${o.cust||''}"`);
+      await persist();
+      renderExternalOrdersTab();
+      renderNav();
+      showToast('تم حذف الأوردر');
+    });
+  }));
   const openBtn = document.getElementById('openOrderSystemBtn');
   if(openBtn){
     openBtn.addEventListener('click', ()=>{
