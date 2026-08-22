@@ -3671,10 +3671,68 @@ function showLoginScreen(){
   });
 }
 
+/* ================= تنبيه صوتي لطلبات القاهرة الجديدة ================= */
+let knownCairoRequestIds = new Set();
+let cairoPollTimer = null;
+
+function playNotifBeep(){
+  try{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    [0, 0.18].forEach((offset, i)=>{
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(i===0? 880 : 1046, now+offset);
+      gain.gain.setValueAtTime(0.0001, now+offset);
+      gain.gain.exponentialRampToValueAtTime(0.28, now+offset+0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now+offset+0.32);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(now+offset);
+      osc.stop(now+offset+0.34);
+    });
+  }catch(e){ /* الصوت مش شرط أساسي، لو المتصفح رفض نتجاهل بهدوء */ }
+}
+
+async function pollCairoRequests(){
+  if(!currentUser || currentUser.role==='cairo') return;
+  try{
+    const res = await StorageAPI.get(STORAGE_KEY, false);
+    if(!res || !res.value) return;
+    const remote = JSON.parse(res.value);
+    const remoteList = remote.cairoRequests || [];
+    const newOnes = remoteList.filter(r=> !knownCairoRequestIds.has(r.id));
+    if(newOnes.length){
+      newOnes.forEach(r=>{
+        const exists = (DB.cairoRequests||[]).some(x=>x.id===r.id);
+        if(!exists){ if(!DB.cairoRequests) DB.cairoRequests=[]; DB.cairoRequests.unshift(r); }
+      });
+      playNotifBeep();
+      const label = newOnes.length===1 ? (CR_TYPE_LABEL[newOnes[0].type]?CR_TYPE_LABEL[newOnes[0].type].label:'طلب') : `${newOnes.length} طلبات`;
+      showToast(`📩 طلب جديد من القاهرة (${label})`);
+      renderNav();
+      if(currentTab==='cairoRequests') renderCairoRequestsTab();
+    }
+    remoteList.forEach(r=> knownCairoRequestIds.add(r.id));
+  }catch(e){ /* تجاهل أخطاء الشبكة المؤقتة */ }
+}
+
+function startCairoPolling(){
+  knownCairoRequestIds = new Set((DB.cairoRequests||[]).map(r=>r.id));
+  if(cairoPollTimer) clearInterval(cairoPollTimer);
+  if(currentUser && currentUser.role!=='cairo'){
+    cairoPollTimer = setInterval(pollCairoRequests, 20000);
+  }
+}
+function stopCairoPolling(){
+  if(cairoPollTimer){ clearInterval(cairoPollTimer); cairoPollTimer=null; }
+}
+
 function logoutUser(){
   if(currentUser){ logAction('تسجيل خروج'); persist(true); }
   currentUser = null;
   isAdmin = false;
+  stopCairoPolling();
   try{ localStorage.removeItem(AUTH_KEY); }catch(e){ /* ignore */ }
   document.getElementById('app').classList.add('hidden');
   showLoginScreen();
@@ -3691,6 +3749,7 @@ function enterApp(){
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('loading').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
+  startCairoPolling();
 }
 
 /* ================= BOOT ================= */
