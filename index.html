@@ -3679,17 +3679,22 @@ function playNotifBeep(){
   try{
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const now = ctx.currentTime;
-    [0, 0.18].forEach((offset, i)=>{
+    const notes = [
+      {freq:880,  offset:0,    dur:0.5},
+      {freq:1046, offset:0.28, dur:0.5},
+      {freq:1318, offset:0.56, dur:0.6},
+    ];
+    notes.forEach(n=>{
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(i===0? 880 : 1046, now+offset);
-      gain.gain.setValueAtTime(0.0001, now+offset);
-      gain.gain.exponentialRampToValueAtTime(0.28, now+offset+0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now+offset+0.32);
+      osc.frequency.setValueAtTime(n.freq, now+n.offset);
+      gain.gain.setValueAtTime(0.0001, now+n.offset);
+      gain.gain.exponentialRampToValueAtTime(0.3, now+n.offset+0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now+n.offset+n.dur);
       osc.connect(gain); gain.connect(ctx.destination);
-      osc.start(now+offset);
-      osc.stop(now+offset+0.34);
+      osc.start(now+n.offset);
+      osc.stop(now+n.offset+n.dur+0.05);
     });
   }catch(e){ /* الصوت مش شرط أساسي، لو المتصفح رفض نتجاهل بهدوء */ }
 }
