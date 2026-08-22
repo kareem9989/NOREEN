@@ -676,16 +676,19 @@ const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
 const WAREHOUSE_TABS = ['purchaseRequests','purchases','raw','whManufacturing','whPackaging','whFinished','cairoRequests'];
 const CAIRO_TABS = ['cairoRequests'];
+const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','cairoRequests'];
 function isTabAllowed(tabId){
   if(!currentUser) return false;
   if(currentUser.role==='admin') return true;
   if(currentUser.role==='cairo') return CAIRO_TABS.includes(tabId);
+  if(currentUser.role==='operation') return OPERATION_TABS.includes(tabId);
   return WAREHOUSE_TABS.includes(tabId);
 }
 function firstAllowedTab(){
   if(!currentUser) return 'dashboard';
   if(currentUser.role==='admin') return 'dashboard';
   if(currentUser.role==='cairo') return CAIRO_TABS[0];
+  if(currentUser.role==='operation') return OPERATION_TABS[0];
   return WAREHOUSE_TABS[0];
 }
 let saveTimer = null;
@@ -759,6 +762,7 @@ function defaultUsers(){
     {id:uid(), username:'admin', password:'admin123', role:'admin', name:'أدمن'},
     {id:uid(), username:'egygulf', password:'wh123', role:'warehouse', name:'أمين مخزن طنطا'},
     {id:uid(), username:'egycairo', password:'cairo123', role:'cairo', name:'سيلز القاهرة'},
+    {id:uid(), username:'operation', password:'op123', role:'operation', name:'أوبريشن'},
   ];
 }
 
@@ -805,8 +809,13 @@ async function loadDB(){
           {id:uid(), username:'admin', password:oldAdminPass, role:'admin', name:'أدمن'},
           {id:uid(), username:'egygulf', password:oldWhPass, role:'warehouse', name:'أمين مخزن طنطا'},
           {id:uid(), username:'egycairo', password:oldCairoPass, role:'cairo', name:'سيلز القاهرة'},
+          {id:uid(), username:'operation', password:'op123', role:'operation', name:'أوبريشن'},
         ];
       }
+      if(!DB.users.some(u=>u.role==='operation') && !DB.settings.operationUserSeeded){
+        DB.users.push({id:uid(), username:'operation', password:'op123', role:'operation', name:'أوبريشن'});
+      }
+      DB.settings.operationUserSeeded = true;
       delete DB.settings.adminPassword;
       delete DB.settings.warehousePassword;
       delete DB.settings.cairoSalesPassword;
@@ -3200,7 +3209,7 @@ function renderAuditLogTab(){
             <td style="white-space:nowrap;">${fmtDateTimeAr(a.ts)}</td>
             <td style="font-weight:700">${esc(a.name||'—')}</td>
             <td>${esc(a.username||'—')}</td>
-            <td>${a.role==='admin'?'أدمن':(a.role==='cairo'?'سيلز القاهرة':(a.role==='warehouse'?'أمين مخزن':'—'))}</td>
+            <td>${ROLE_LABELS[a.role]||'—'}</td>
             <td>${esc(a.action||'—')}</td>
           </tr>`).join('')}
         </tbody>
@@ -3216,7 +3225,7 @@ let isAdmin = false; // = currentUser.role==='admin' — متسيبة عشان �
 function renderAdminArea(){
   const area = document.getElementById('adminArea');
   if(!area || !currentUser) return;
-  const roleLabel = currentUser.role==='admin' ? 'أدمن' : (currentUser.role==='cairo' ? 'سيلز القاهرة' : 'أمين مخزن');
+  const roleLabel = ROLE_LABELS[currentUser.role] || currentUser.role;
   area.innerHTML = `
     <span class="pill pill-navy" style="font-size:12px;" title="${esc(currentUser.username||'')}">${esc(currentUser.name||'')} — ${roleLabel}</span>
     ${currentUser.role==='admin' ? `<button class="btn btn-ghost btn-sm" id="adminSettingsBtn" title="إعدادات الأدمن">${svgIcon('edit','sm')} إعدادات</button>` : ''}
@@ -3226,7 +3235,7 @@ function renderAdminArea(){
   document.getElementById('userLogoutBtn').addEventListener('click', logoutUser);
 }
 
-const ROLE_LABELS = {admin:'أدمن', warehouse:'أمين مخزن', cairo:'سيلز القاهرة'};
+const ROLE_LABELS = {admin:'أدمن', warehouse:'أمين مخزن', cairo:'سيلز القاهرة', operation:'أوبريشن'};
 
 function openAdminSettingsModal(){
   renderAdminSettingsModalContent();
@@ -3315,6 +3324,7 @@ function openUserEditModal(userId){
             <select id="f_userrole">
               <option value="admin" ${u&&u.role==='admin'?'selected':''}>أدمن (كل الصلاحيات)</option>
               <option value="warehouse" ${u&&u.role==='warehouse'?'selected':''}>أمين مخزن (المشتريات والمخازن + طلبات القاهرة)</option>
+              <option value="operation" ${u&&u.role==='operation'?'selected':''}>أوبريشن (المخازن + طلبات القاهرة، بدون مشتريات)</option>
               <option value="cairo" ${u&&u.role==='cairo'?'selected':''}>سيلز القاهرة (طلبات القاهرة بس)</option>
             </select>
           </div>
