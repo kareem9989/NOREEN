@@ -3677,25 +3677,32 @@ let cairoPollTimer = null;
 
 function playNotifBeep(){
   try{
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const now = ctx.currentTime;
-    const notes = [
-      {freq:880,  offset:0,    dur:0.5},
-      {freq:1046, offset:0.28, dur:0.5},
-      {freq:1318, offset:0.56, dur:0.6},
-    ];
-    notes.forEach(n=>{
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(n.freq, now+n.offset);
-      gain.gain.setValueAtTime(0.0001, now+n.offset);
-      gain.gain.exponentialRampToValueAtTime(0.3, now+n.offset+0.03);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now+n.offset+n.dur);
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.start(now+n.offset);
-      osc.stop(now+n.offset+n.dur+0.05);
-    });
+    if(!window._notifAudioCtx){
+      window._notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    const ctx = window._notifAudioCtx;
+    const fire = ()=>{
+      const now = ctx.currentTime;
+      const notes = [
+        {freq:880,  offset:0,    dur:0.5},
+        {freq:1046, offset:0.28, dur:0.5},
+        {freq:1318, offset:0.56, dur:0.6},
+      ];
+      notes.forEach(n=>{
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(n.freq, now+n.offset);
+        gain.gain.setValueAtTime(0.0001, now+n.offset);
+        gain.gain.exponentialRampToValueAtTime(0.3, now+n.offset+0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now+n.offset+n.dur);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(now+n.offset);
+        osc.stop(now+n.offset+n.dur+0.05);
+      });
+    };
+    if(ctx.state==='suspended'){ ctx.resume().then(fire).catch(fire); }
+    else { fire(); }
   }catch(e){ /* الصوت مش شرط أساسي، لو المتصفح رفض نتجاهل بهدوء */ }
 }
 
@@ -3727,6 +3734,14 @@ function startCairoPolling(){
   if(cairoPollTimer) clearInterval(cairoPollTimer);
   if(currentUser && currentUser.role!=='cairo'){
     cairoPollTimer = setInterval(pollCairoRequests, 20000);
+    const unlockAudio = ()=>{
+      try{
+        if(!window._notifAudioCtx){ window._notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+        if(window._notifAudioCtx.state==='suspended'){ window._notifAudioCtx.resume(); }
+      }catch(e){}
+      document.removeEventListener('click', unlockAudio);
+    };
+    document.addEventListener('click', unlockAudio);
   }
 }
 function stopCairoPolling(){
