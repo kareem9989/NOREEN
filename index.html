@@ -675,9 +675,9 @@ let currentTab = 'dashboard';
 /* ================= AUTH (يوزرين: أدمن / أمين مخزن) ================= */
 const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
-const WAREHOUSE_TABS = ['purchaseRequests','purchases','raw','whManufacturing','whPackaging','whFinished','cairoRequests'];
-const CAIRO_TABS = ['cairoRequests'];
-const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','cairoRequests'];
+const WAREHOUSE_TABS = ['purchaseRequests','purchases','raw','whManufacturing','whPackaging','whFinished','cairoRequests','fillingReports','productionReports'];
+const CAIRO_TABS = ['cairoRequests','fillingReports','productionReports'];
+const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','cairoRequests','fillingReports','productionReports'];
 function isTabAllowed(tabId){
   if(!currentUser) return false;
   if(currentUser.role==='admin') return true;
@@ -790,7 +790,9 @@ function freshDB(){
     itemCard: [],
     auditLog: [],
     knownUsers: [],
-    cairoRequests: []
+    cairoRequests: [],
+    fillingReports: [],
+    productionReports: []
   };
 }
 
@@ -855,6 +857,8 @@ async function loadDB(){
       if(!DB.auditLog) DB.auditLog = [];
       if(!DB.knownUsers) DB.knownUsers = [];
       if(!DB.cairoRequests) DB.cairoRequests = [];
+      if(!DB.fillingReports) DB.fillingReports = [];
+      if(!DB.productionReports) DB.productionReports = [];
       await persist(true);
       return;
     }
@@ -932,6 +936,8 @@ const TABS = [
   {id:'itemCard', label:'كارتة الصنف', ic:'card'},
   {id:'customerOrders', label:'أوردرات العملاء', ic:'orders'},
   {id:'production', label:'الإنتاج اليومي', ic:'production'},
+  {id:'productionReports', label:'تقرير الانتاج', ic:'production'},
+  {id:'fillingReports', label:'تقرير التعبئة', ic:'box'},
   {id:'orders', label:'الأوردرات', ic:'orders'},
   {id:'waste', label:'تقرير الهالك', ic:'waste'},
   {id:'breakdowns', label:'الأعطال', ic:'breakdowns'},
@@ -951,6 +957,8 @@ const TITLES = {
   itemCard:['كارتة الصنف','رصيد افتتاحي، إضافة، صرف، ورصيد نهائي لأي صنف في أي مخزن'],
   customerOrders:['أوردرات العملاء','استورد ملف JSON من نظام إنشاء الأوردرات عشان تشوفهم هنا'],
   production:['الإنتاج اليومي','تسجيل أوردرات وكميات الإنتاج اليومية'],
+  productionReports:['تقرير الانتاج','تسجيل تقرير الانتاج لكل أوردر: الصنف ووزن الوحدة والكمية المسلمة للتعبئة'],
+  fillingReports:['تقرير التعبئة','تسجيل تقرير التعبئة لكل أوردر: الكميات المستلمة من الإنتاج، الهالك، والكراتين المسلمة للمخازن'],
   orders:['الأوردرات','الإنتاج مجمّعًا حسب كل عميل/أوردر'],
   waste:['تقرير الهالك','تسجيل الهالك اليومي وأسبابه'],
   breakdowns:['الأعطال','تسجيل أعطال وتوقفات خط الإنتاج'],
@@ -978,6 +986,8 @@ function renderNav(){
     else if(t.id==='itemCard') count = DB.itemCard.length;
     else if(t.id==='customerOrders') count = (DB.importedOrders||[]).length;
     else if(t.id==='auditLog') count = (DB.auditLog||[]).length;
+    else if(t.id==='fillingReports') count = (DB.fillingReports||[]).length;
+    else if(t.id==='productionReports') count = (DB.productionReports||[]).length;
     return `<button class="nav-item ${currentTab===t.id?'active':''}" data-tab="${t.id}">
       ${svgIcon(t.ic)}<span>${t.label}</span>
       ${count!==''?`<span class="badge-count">${count}</span>`:''}
@@ -1429,6 +1439,56 @@ const CONFIGS = {
     filterKey:null,
     dateKey:'orderDate',
   },
+  productionReports:{
+    title:'تقرير الانتاج', addLabel:'إضافة صف تقرير انتاج',
+    fields:[
+      {key:'order', label:'الاوردر', type:'select', dynamicOptions:'orders', required:true},
+      {key:'date', label:'التاريخ', type:'date', required:true},
+      {key:'item', label:'الصنف', type:'text', required:true},
+      {key:'unitWeight', label:'وزن الوحدة (مصاصة / بمبون / لبان)', type:'text', required:false},
+      {key:'qtyToFilling', label:'الكمية المسلمة للتعبئة', type:'number', required:false, step:'0.01'},
+    ],
+    columns:[
+      {key:'order', label:'الاوردر'},
+      {key:'date', label:'التاريخ'},
+      {key:'item', label:'الصنف'},
+      {key:'unitWeight', label:'وزن الوحدة'},
+      {key:'qtyToFilling', label:'الكمية المسلمة للتعبئة'},
+    ],
+    searchKeys:['order','item','unitWeight'],
+    filterKey:'order',
+    filterAllLabel:'كل الاوردرات',
+    dateKey:'date',
+  },
+  fillingReports:{
+    title:'تقرير التعبئة', addLabel:'إضافة صف تقرير تعبئة',
+    fields:[
+      {key:'order', label:'الاوردر', type:'select', dynamicOptions:'orders', required:true},
+      {key:'date', label:'التاريخ', type:'date', required:true},
+      {key:'item', label:'الصنف', type:'text', required:true},
+      {key:'packWeight', label:'وزن العبوة (كيس / رشاقة /.....)', type:'text', required:false},
+      {key:'receivedKg', label:'الكمية المستلمة من الانتاج بالكيلو', type:'number', required:false, step:'0.01'},
+      {key:'remainingKg', label:'المتبقي استلامه من الانتاج بالكيلو', type:'number', required:false, step:'0.01'},
+      {key:'waste', label:'الهالك', type:'number', required:false, step:'0.01'},
+      {key:'cartonsDelivered', label:'عدد الكراتين المسلمة للمخازن', type:'number', required:false, step:'1'},
+      {key:'cartonsRemaining', label:'المتبقي تسليمه الي المخازن', type:'number', required:false, step:'1'},
+    ],
+    columns:[
+      {key:'order', label:'الاوردر'},
+      {key:'date', label:'التاريخ'},
+      {key:'item', label:'الصنف'},
+      {key:'packWeight', label:'وزن العبوة'},
+      {key:'receivedKg', label:'المستلم من الانتاج (كجم)'},
+      {key:'remainingKg', label:'المتبقي من الانتاج (كجم)'},
+      {key:'waste', label:'الهالك'},
+      {key:'cartonsDelivered', label:'كراتين مسلمة للمخازن'},
+      {key:'cartonsRemaining', label:'كراتين متبقية للمخازن'},
+    ],
+    searchKeys:['order','item','packWeight'],
+    filterKey:'order',
+    filterAllLabel:'كل الاوردرات',
+    dateKey:'date',
+  },
   itemCard:{
     title:'كارتة الصنف', addLabel:'إضافة حركة جديدة',
     fields:[
@@ -1778,7 +1838,7 @@ function renderTableRows(tabId){
           </div>
         </td>`;
       }
-      if(col.key==='balance' || col.key==='qty' || col.key==='drums' || col.key==='produced' || col.key==='opening' || col.key==='added' || col.key==='removed' || col.key==='closing'){
+      if(col.key==='balance' || col.key==='qty' || col.key==='drums' || col.key==='produced' || col.key==='opening' || col.key==='added' || col.key==='removed' || col.key==='closing' || col.key==='receivedKg' || col.key==='remainingKg' || col.key==='waste' || col.key==='cartonsDelivered' || col.key==='cartonsRemaining' || col.key==='qtyToFilling'){
         const val = item[col.key];
         const isLow = col.key==='balance' && Number(val)<=DB.settings.lowStockThreshold;
         return `<td class="num" ${isLow ? 'style="color:var(--danger)"':''}>${fmtNum(val)}</td>`;
@@ -1797,6 +1857,9 @@ function renderTableRows(tabId){
       }
       if(col.key==='category' && item.category){
         return `<td><span class="pill pill-navy">${esc(item.category)}</span></td>`;
+      }
+      if(col.key==='order' && item.order){
+        return `<td><span class="pill pill-navy">${esc(item.order)}</span></td>`;
       }
       return `<td>${esc(item[col.key]) || '<span class="muted">—</span>'}</td>`;
     }).join('');
@@ -2094,9 +2157,13 @@ function openItemModal(tabId, item, presetVals){
     const defaultVal = f.key==='date' ? todayISO() : '';
     const v = val(f.key, defaultVal);
     if(f.type==='select'){
+      let opts = f.options || [];
+      if(f.dynamicOptions==='orders'){
+        opts = [...new Set(DB.production.map(p=>(p.order||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+      }
       inputHtml = `<select id="${id}">
-        <option value="">— اختر —</option>
-        ${f.options.map(o=>`<option value="${esc(o)}" ${v===o?'selected':''}>${esc(o)}</option>`).join('')}
+        <option value="">— اختر الاوردر —</option>
+        ${opts.map(o=>`<option value="${esc(o)}" ${v===o?'selected':''}>${esc(o)}</option>`).join('')}
       </select>`;
     } else if(f.type==='datalist'){
       const existing = [...new Set(DB.raw.map(r=>(r.category||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
