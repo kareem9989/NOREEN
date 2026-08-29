@@ -1451,6 +1451,7 @@ const CONFIGS = {
       {key:'item', label:'الصنف'},
       {key:'unitWeight', label:'وزن الوحدة'},
       {key:'qtyToFilling', label:'الكمية المسلمة للتعبئة'},
+      {key:'remainingQty', label:'المتبقي إنتاجه (كجم)'},
     ],
     searchKeys:['order','item','unitWeight'],
     filterKey:'order',
@@ -1749,7 +1750,14 @@ function exportToExcel(tabId){
   const exportCols = baseColumns.filter(c=>c.key!=='adjust' && c.key!=='duration' && c.key!=='expiryStatus');
   const rows = list.map(item=>{
     const row = {};
-    exportCols.forEach(c=>{ row[c.label] = item[c.key]===undefined||item[c.key]===null ? '' : item[c.key]; });
+    exportCols.forEach(c=>{
+      if(c.key==='remainingQty'){
+        const required = getOrderRequiredQtyKg(item.order, item.item);
+        row[c.label] = required>0 ? Math.max(0, Math.round((required - getOrderProducedQtyKg(item.order, item.item, null))*100)/100) : '';
+        return;
+      }
+      row[c.label] = item[c.key]===undefined||item[c.key]===null ? '' : item[c.key];
+    });
     if(baseColumns.some(c=>c.key==='duration')) row['المدة'] = durationLabel(item.from, item.to);
     if(baseColumns.some(c=>c.key==='expiryStatus')){ const st = expiryStatus(item.expiryDate); row['الحالة'] = st ? st.label : ''; }
     return row;
@@ -1863,6 +1871,17 @@ function renderTableRows(tabId){
       }
       if(col.key==='order' && item.order){
         return `<td><span class="pill pill-navy">${esc(item.order)}</span></td>`;
+      }
+      if(col.key==='remainingQty'){
+        const required = getOrderRequiredQtyKg(item.order, item.item);
+        if(required<=0){
+          return `<td class="muted">—</td>`;
+        }
+        const produced = getOrderProducedQtyKg(item.order, item.item, null);
+        const remaining = Math.round((required - produced)*100)/100;
+        const cls = remaining<=0 ? 'pill-ok' : 'pill-warn';
+        const label = remaining<=0 ? 'اكتمل' : fmtNum(remaining);
+        return `<td><span class="pill ${cls}">${label}</span> <span class="muted" style="font-size:11px;">من أصل ${fmtNum(required)}</span></td>`;
       }
       return `<td>${esc(item[col.key]) || '<span class="muted">—</span>'}</td>`;
     }).join('');
@@ -2156,6 +2175,45 @@ function getAllOrderNames(){
     if(ono) return ono;
     return (o.cust||'').trim();
   }).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+}
+
+// الأوردر ممكن يتاخد اسمه من رقم الأوردر (ono) أو من اسم العميل (لو معندوش رقم) — الدالة دي بترجع كل سجلات الأوردر المستورد المطابقة للاسم ده
+function findCustomerOrdersByName(orderName){
+  const name = (orderName||'').trim();
+  if(!name) return [];
+  return (DB.importedOrders||[]).filter(o=>{
+    const ono = (o.ono||'').trim();
+    const key = ono || (o.cust||'').trim();
+    return key === name;
+  });
+}
+
+// الكمية المطلوب إنتاجها لصنف معين تحت أوردر معين (بالكيلو) — محسوبة من بنود الأوردر المستورد: وزن الحبة × عدد بالوحدة × وحدات/كرتونة × عدد الكراتين
+function getOrderRequiredQtyKg(orderName, itemName){
+  const item = (itemName||'').trim();
+  if(!item) return 0;
+  let total = 0;
+  findCustomerOrdersByName(orderName).forEach(o=>{
+    (o.rows||[]).forEach(r=>{
+      if((r.d||'').trim() === item){
+        const grams = (Number(r.g)||0) * (Number(r.s)||0) * (Number(r.u)||0) * (Number(r.q)||0);
+        total += grams/1000;
+      }
+    });
+  });
+  return total;
+}
+
+// إجمالي اللي اتسجل إنتاجه فعليًا (تقرير الانتاج) لصنف معين تحت أوردر معين — باستثناء صف معين لو بنعدله
+function getOrderProducedQtyKg(orderName, itemName, excludeId){
+  const item = (itemName||'').trim();
+  return (DB.productionReports||[]).reduce((sum, r)=>{
+    if(r.id===excludeId) return sum;
+    if((r.order||'').trim()===((orderName||'').trim()) && (r.item||'').trim()===item){
+      return sum + (Number(r.qtyToFilling)||0);
+    }
+    return sum;
+  }, 0);
 }
 
 function openItemModal(tabId, item, presetVals){
