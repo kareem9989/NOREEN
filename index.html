@@ -2150,8 +2150,12 @@ function closeModal(){
 }
 
 function getAllOrderNames(){
-  // أوردرات العملاء بقت المصدر الوحيد للأوردرات في كل السيستم (الإنتاج اليومي + تقارير التعبئة/الانتاج)
-  return [...new Set((DB.importedOrders||[]).map(o=>(o.ono||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+  // أوردرات العملاء بقت المصدر الوحيد للأوردرات — لو الأوردر معندوش رقم أوردر، استخدم اسم العميل بديل
+  return [...new Set((DB.importedOrders||[]).map(o=>{
+    const ono = (o.ono||'').trim();
+    if(ono) return ono;
+    return (o.cust||'').trim();
+  }).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
 }
 
 function openItemModal(tabId, item, presetVals){
