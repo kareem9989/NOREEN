@@ -938,7 +938,6 @@ const TABS = [
   {id:'production', label:'الإنتاج اليومي', ic:'production'},
   {id:'productionReports', label:'تقرير الانتاج', ic:'production'},
   {id:'fillingReports', label:'تقرير التعبئة', ic:'box'},
-  {id:'orders', label:'الأوردرات', ic:'orders'},
   {id:'waste', label:'تقرير الهالك', ic:'waste'},
   {id:'breakdowns', label:'الأعطال', ic:'breakdowns'},
   {id:'auditLog', label:'سجل النشاط', ic:'history'},
@@ -959,7 +958,6 @@ const TITLES = {
   production:['الإنتاج اليومي','تسجيل أوردرات وكميات الإنتاج اليومية'],
   productionReports:['تقرير الانتاج','تسجيل تقرير الانتاج لكل أوردر: الصنف ووزن الوحدة والكمية المسلمة للتعبئة'],
   fillingReports:['تقرير التعبئة','تسجيل تقرير التعبئة لكل أوردر: الكميات المستلمة من الإنتاج، الهالك، والكراتين المسلمة للمخازن'],
-  orders:['الأوردرات','الإنتاج مجمّعًا حسب كل عميل/أوردر'],
   waste:['تقرير الهالك','تسجيل الهالك اليومي وأسبابه'],
   breakdowns:['الأعطال','تسجيل أعطال وتوقفات خط الإنتاج'],
   auditLog:['سجل النشاط','كل تعديل حصل في النظام ومين اللي عمله'],
@@ -972,7 +970,6 @@ function renderNav(){
     let count = '';
     if(t.id==='raw') count = DB.raw.length;
     else if(t.id==='production') count = DB.production.length;
-    else if(t.id==='orders') count = new Set(DB.production.map(p=>p.order||'بدون أوردر')).size;
     else if(t.id==='waste') count = DB.waste.length;
     else if(t.id==='breakdowns') count = DB.breakdowns.length;
     else if(t.id==='purchaseRequests') count = (DB.purchaseRequests||[]).filter(r=>r.status==='pending').length || '';
@@ -1309,7 +1306,7 @@ const CONFIGS = {
     title:'الإنتاج اليومي', addLabel:'تسجيل إنتاج جديد',
     fields:[
       {key:'date', label:'التاريخ', type:'date', required:true},
-      {key:'order', label:'الأوردر', type:'text', required:false},
+      {key:'order', label:'الأوردر', type:'select', dynamicOptions:'orders', required:true},
       {key:'item', label:'الصنف', type:'text', required:true},
       {key:'flavor', label:'الطعم', type:'text', required:false},
       {key:'drums', label:'عدد الحلل', type:'number', required:false, step:'1'},
@@ -2153,9 +2150,8 @@ function closeModal(){
 }
 
 function getAllOrderNames(){
-  const fromProduction = DB.production.map(p=>(p.order||'').trim());
-  const fromCustomerOrders = (DB.importedOrders||[]).map(o=>(o.ono||'').trim());
-  return [...new Set([...fromProduction, ...fromCustomerOrders].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+  // أوردرات العملاء بقت المصدر الوحيد للأوردرات في كل السيستم (الإنتاج اليومي + تقارير التعبئة/الانتاج)
+  return [...new Set((DB.importedOrders||[]).map(o=>(o.ono||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
 }
 
 function openItemModal(tabId, item, presetVals){
@@ -2513,17 +2509,18 @@ function renderOrdersTab(){
   const groups = {};
   DB.production.forEach(p=>{
     const key = (p.order && p.order.trim()) ? p.order.trim() : 'بدون أوردر';
-    if(!groups[key]) groups[key] = { order:key, total:0, runs:0, items:{}, customer:'', fromCustomerOrders:false };
+    if(!groups[key]) groups[key] = { order:key, label:key, total:0, runs:0, items:{}, customer:'', fromCustomerOrders:false };
     groups[key].total += Number(p.produced)||0;
     groups[key].runs += 1;
     const ik = `${p.item||'—'} / ${p.flavor||'—'}`;
     groups[key].items[ik] = (groups[key].items[ik]||0) + (Number(p.produced)||0);
   });
-  // ضيف أوردرات العملاء (المستوردة) اللي لسه محصلش عليها تسجيل إنتاج، أو كمّل بيانات العميل للي موجود بالفعل
+  // ضيف كل أوردرات العملاء (المستوردة) بدون استثناء — حتى لو لسه محصلش عليها تسجيل إنتاج، وبمفتاح فريد يمنع دمج أوردرات مختلفة في بعض غلط
   (DB.importedOrders||[]).forEach(o=>{
-    const key = (o.ono && o.ono.trim()) ? o.ono.trim() : null;
-    if(!key) return;
-    if(!groups[key]) groups[key] = { order:key, total:0, runs:0, items:{}, customer:o.cust||'', fromCustomerOrders:true };
+    const hasOno = o.ono && o.ono.trim();
+    const key = hasOno ? o.ono.trim() : `co-${o.id}`;
+    const label = hasOno ? o.ono.trim() : (o.cust ? `أوردر عميل — ${o.cust}` : `أوردر عميل بدون رقم`);
+    if(!groups[key]) groups[key] = { order:key, label, total:0, runs:0, items:{}, customer:o.cust||'', fromCustomerOrders:true };
     else { groups[key].customer = groups[key].customer || o.cust || ''; groups[key].fromCustomerOrders = true; }
   });
   const orderList = Object.values(groups).sort((a,b)=>b.total-a.total);
@@ -2540,7 +2537,7 @@ function renderOrdersTab(){
       ${orderList.length? `<div class="order-cards-grid">
         ${orderList.map(o=>`
           <div class="order-card ${active && active.order===o.order?'active':''}" data-order="${esc(o.order)}">
-            <div class="oc-name">${esc(o.order)}${o.customer? ` <span class="muted" style="font-weight:600;font-size:11.5px;">— ${esc(o.customer)}</span>`:''}</div>
+            <div class="oc-name">${esc(o.label||o.order)}${o.customer? ` <span class="muted" style="font-weight:600;font-size:11.5px;">— ${esc(o.customer)}</span>`:''}</div>
             <div class="oc-total">${fmtNum(o.total)}</div>
             <div class="oc-foot">${o.runs? `${o.runs} عملية تشغيل · ${Object.keys(o.items).length} صنف/طعم` : (o.fromCustomerOrders? 'لسه ملهوش تسجيل إنتاج' : '')}</div>
           </div>`).join('')}
@@ -2551,14 +2548,14 @@ function renderOrdersTab(){
   ${active ? `
   <div class="charts-grid">
     <div class="chart-card">
-      <h3>توزيع الكمية على الأصناف/الأطعمة — ${esc(active.order)}</h3>
+      <h3>توزيع الكمية على الأصناف/الأطعمة — ${esc(active.label||active.order)}</h3>
       ${activeSegments.length? `
         <div class="chart-holder" style="height:170px;">${htmlDonutChart(activeSegments, 160)}</div>
         ${donutLegend(activeSegments)}
       ` : `<div class="chart-empty">لا يوجد بيانات</div>`}
     </div>
     <div class="chart-card">
-      <h3>تفاصيل الإنتاج — ${esc(active.order)}</h3>
+      <h3>تفاصيل الإنتاج — ${esc(active.label||active.order)}</h3>
       <div class="table-wrap" style="max-height:260px;overflow-y:auto;"><table>
         <thead><tr><th>الصنف / الطعم</th><th>الإجمالي</th></tr></thead>
         <tbody>
@@ -3296,7 +3293,6 @@ function renderContent(){
   tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
   selectedProdGroups.clear();
   if(currentTab==='dashboard') renderDashboard();
-  else if(currentTab==='orders') renderOrdersTab();
   else if(currentTab==='purchaseRequests') renderPurchaseRequestsTab();
   else if(currentTab==='cairoRequests') renderCairoRequestsTab();
   else if(currentTab==='purchases') renderPurchasesTab();
