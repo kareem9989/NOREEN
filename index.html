@@ -2164,8 +2164,9 @@ function openItemModal(tabId, item, presetVals){
     let inputHtml = '';
     const defaultVal = f.key==='date' ? todayISO() : '';
     const v = val(f.key, defaultVal);
+    let opts = [];
     if(f.type==='select'){
-      let opts = f.options || [];
+      opts = f.options || [];
       if(f.dynamicOptions==='orders'){
         opts = getAllOrderNames();
       }
@@ -2186,7 +2187,10 @@ function openItemModal(tabId, item, presetVals){
     } else {
       inputHtml = `<input type="text" id="${id}" value="${esc(v)}">`;
     }
-    return `<div class="field"><label>${f.label}${f.required?' *':''}</label>${inputHtml}</div>`;
+    const hint = (f.dynamicOptions==='orders' && opts.length===0)
+      ? `<div class="muted" style="font-size:11.5px;margin-top:4px;">لسه مفيش أوردرات عملاء برقم أوردر صالح (العدد المستورد حاليًا: ${(DB.importedOrders||[]).length}) — استورد أوردر من تبويب "أوردرات العملاء" الأول.</div>`
+      : '';
+    return `<div class="field"><label>${f.label}${f.required?' *':''}</label>${inputHtml}${hint}</div>`;
   }).join('');
 
   document.getElementById('modalRoot').innerHTML = `
@@ -2280,7 +2284,7 @@ function openReportOrderModal(tabId){
             </div>
             <div class="field" style="flex:1;min-width:150px;"><label>التاريخ *</label><input type="date" id="f_date" value="${todayISO()}"></div>
           </div>
-          ${!orderOptions.length ? `<div class="muted" style="font-size:12.5px;">لسه مفيش أوردرات — سجّل أوردر في "الإنتاج اليومي" أو استورد أوردر عميل من "أوردرات العملاء" الأول عشان يظهر هنا.</div>` : ''}
+          ${!orderOptions.length ? `<div class="muted" style="font-size:12.5px;">لسه مفيش أوردرات عملاء برقم أوردر صالح — روح تبويب "أوردرات العملاء" واستورد أوردر (JSON) الأول عشان يظهر هنا. <br>(عدد أوردرات العملاء المستوردة حاليًا في النظام: ${(DB.importedOrders||[]).length})</div>` : ''}
           <div class="field"><label>الأصناف (تقدر تضيف أكتر من صنف تحت نفس الاوردر) *</label>
             <div id="reportItemRows" style="display:flex;flex-direction:column;gap:10px;"></div>
             <button type="button" class="btn btn-ghost btn-sm" id="reportAddRowBtn" style="margin-top:8px;">+ صنف تاني</button>
