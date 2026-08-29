@@ -2152,6 +2152,12 @@ function closeModal(){
   document.getElementById('modalRoot').innerHTML = '';
 }
 
+function getAllOrderNames(){
+  const fromProduction = DB.production.map(p=>(p.order||'').trim());
+  const fromCustomerOrders = (DB.importedOrders||[]).map(o=>(o.ono||'').trim());
+  return [...new Set([...fromProduction, ...fromCustomerOrders].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+}
+
 function openItemModal(tabId, item, presetVals){
   const cfg = CONFIGS[tabId];
   const isEdit = !!item;
@@ -2165,7 +2171,7 @@ function openItemModal(tabId, item, presetVals){
     if(f.type==='select'){
       let opts = f.options || [];
       if(f.dynamicOptions==='orders'){
-        opts = [...new Set(DB.production.map(p=>(p.order||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+        opts = getAllOrderNames();
       }
       inputHtml = `<select id="${id}">
         <option value="">— اختر الاوردر —</option>
@@ -2262,7 +2268,7 @@ function reportRowHtml(tabId, idx){
 
 function openReportOrderModal(tabId){
   reportRowCount = 0;
-  const orderOptions = [...new Set(DB.production.map(p=>(p.order||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+  const orderOptions = getAllOrderNames();
   const isFilling = tabId==='fillingReports';
   document.getElementById('modalRoot').innerHTML = `
     <div class="modal-overlay" id="overlay">
@@ -2278,7 +2284,7 @@ function openReportOrderModal(tabId){
             </div>
             <div class="field" style="flex:1;min-width:150px;"><label>التاريخ *</label><input type="date" id="f_date" value="${todayISO()}"></div>
           </div>
-          ${!orderOptions.length ? `<div class="muted" style="font-size:12.5px;">لسه مفيش أوردرات مسجّلة في "الإنتاج اليومي" — سجّل الأوردر هناك الأول عشان يظهر هنا.</div>` : ''}
+          ${!orderOptions.length ? `<div class="muted" style="font-size:12.5px;">لسه مفيش أوردرات — سجّل أوردر في "الإنتاج اليومي" أو استورد أوردر عميل من "أوردرات العملاء" الأول عشان يظهر هنا.</div>` : ''}
           <div class="field"><label>الأصناف (تقدر تضيف أكتر من صنف تحت نفس الاوردر) *</label>
             <div id="reportItemRows" style="display:flex;flex-direction:column;gap:10px;"></div>
             <button type="button" class="btn btn-ghost btn-sm" id="reportAddRowBtn" style="margin-top:8px;">+ صنف تاني</button>
@@ -2507,11 +2513,18 @@ function renderOrdersTab(){
   const groups = {};
   DB.production.forEach(p=>{
     const key = (p.order && p.order.trim()) ? p.order.trim() : 'بدون أوردر';
-    if(!groups[key]) groups[key] = { order:key, total:0, runs:0, items:{} };
+    if(!groups[key]) groups[key] = { order:key, total:0, runs:0, items:{}, customer:'', fromCustomerOrders:false };
     groups[key].total += Number(p.produced)||0;
     groups[key].runs += 1;
     const ik = `${p.item||'—'} / ${p.flavor||'—'}`;
     groups[key].items[ik] = (groups[key].items[ik]||0) + (Number(p.produced)||0);
+  });
+  // ضيف أوردرات العملاء (المستوردة) اللي لسه محصلش عليها تسجيل إنتاج، أو كمّل بيانات العميل للي موجود بالفعل
+  (DB.importedOrders||[]).forEach(o=>{
+    const key = (o.ono && o.ono.trim()) ? o.ono.trim() : null;
+    if(!key) return;
+    if(!groups[key]) groups[key] = { order:key, total:0, runs:0, items:{}, customer:o.cust||'', fromCustomerOrders:true };
+    else { groups[key].customer = groups[key].customer || o.cust || ''; groups[key].fromCustomerOrders = true; }
   });
   const orderList = Object.values(groups).sort((a,b)=>b.total-a.total);
 
@@ -2527,9 +2540,9 @@ function renderOrdersTab(){
       ${orderList.length? `<div class="order-cards-grid">
         ${orderList.map(o=>`
           <div class="order-card ${active && active.order===o.order?'active':''}" data-order="${esc(o.order)}">
-            <div class="oc-name">${esc(o.order)}</div>
+            <div class="oc-name">${esc(o.order)}${o.customer? ` <span class="muted" style="font-weight:600;font-size:11.5px;">— ${esc(o.customer)}</span>`:''}</div>
             <div class="oc-total">${fmtNum(o.total)}</div>
-            <div class="oc-foot">${o.runs} عملية تشغيل · ${Object.keys(o.items).length} صنف/طعم</div>
+            <div class="oc-foot">${o.runs? `${o.runs} عملية تشغيل · ${Object.keys(o.items).length} صنف/طعم` : (o.fromCustomerOrders? 'لسه ملهوش تسجيل إنتاج' : '')}</div>
           </div>`).join('')}
       </div>` : `<div class="empty-state"><div class="big">${svgIcon('orders')}</div>لا يوجد تسجيلات إنتاج مرتبطة بأوردر بعد</div>`}
     </div>
