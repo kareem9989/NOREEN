@@ -769,7 +769,7 @@ function defaultUsers(){
 
 function freshDB(){
   const rawItems = SEED.raw.map(r=>({id:uid(), name:r.name, category:r.category, supplier:r.supplier, balance:r.balance, variant:'', barcode:'', notes:'', productionDate:'', expiryDate:'', history:[]}));
-  const rollItems = SEED.rolls.map(r=>({id:uid(), name:r.name, category:'رولات', supplier:'', balance:r.balance, variant:r.flavor||'', barcode:'', notes:'', productionDate:'', expiryDate:'', history:[]}));
+  const rollItems = SEED.rolls.map(r=>({id:uid(), name:r.name, category:(r.name||'').trim().startsWith('علب')?'علب':'رولات', supplier:'', balance:r.balance, variant:r.flavor||'', barcode:'', notes:'', productionDate:'', expiryDate:'', history:[]}));
   const cartonItems = SEED_CARTONS.map(c=>({id:uid(), name:c.name, category:'كراتين', supplier:'', balance:c.balance||0, variant:c.size||'', barcode:c.barcode||'', notes:c.notes||'', productionDate:'', expiryDate:'', history:[]}));
   return {
     settings:{ lowStockThreshold: 10, orderSystemUrl:'https://amrentag.vercel.app/' },
@@ -844,6 +844,12 @@ async function loadDB(){
         });
         delete DB.cartons;
       }
+      // one-time migration: فرّق تابة "علب" عن "رولات" — انقل الأصناف اللي اسمها بيبدأ بـ"علب" من فئة رولات لفئة علب
+      DB.raw.forEach(r=>{
+        if((r.category||'').trim()==='رولات' && (r.name||'').trim().startsWith('علب')){
+          r.category = 'علب';
+        }
+      });
       if(!DB.purchases) DB.purchases = [];
       if(!DB.purchaseRequests) DB.purchaseRequests = [];
       if(!DB.whManufacturing) DB.whManufacturing = [];
@@ -1517,8 +1523,10 @@ let selectedProdGroups = new Set(); // group keys currently selected — click r
 let rawSubTab = 'all'; // 'all' | a category name from RAW_SUBCATS — sub-tab inside the "خامات" (raw materials) tab
 
 const RAW_SUBCATS = null; // deprecated — سُبكاتات الخامات بقت ديناميكية، استخدم getRawSubcats()
+const FORCED_RAW_SUBCATS = ['علب','استيكر']; // تظهر دايماً كتابات حتى لو لسه مفيش أصناف فيها
 function getRawSubcats(){
-  const cats = [...new Set(DB.raw.map(r=>(r.category||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+  const fromData = DB.raw.map(r=>(r.category||'').trim()).filter(Boolean);
+  const cats = [...new Set([...fromData, ...FORCED_RAW_SUBCATS])].sort((a,b)=>a.localeCompare(b,'ar'));
   return cats.map(c=>({id:c, label:c, addLabel:`إضافة صنف جديد لفئة "${c}"`}));
 }
 
