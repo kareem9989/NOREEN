@@ -796,11 +796,33 @@ function freshDB(){
   };
 }
 
-async function loadDB(){
-  try{
-    const res = await StorageAPI.get(STORAGE_KEY, false);
-    if(res && res.value){
-      DB = JSON.parse(res.value);
+/* ================= تخزين مقسّم لكل مجموعة بيانات في مستند مستقل ================= */
+/* كل مجموعة (خامات، إنتاج، هالك، مشتريات...) بتتخزن في مستند Firestore منفصل بدل
+   ما يكونوا كلهم في مستند واحد ضخم. ده بيمنع إن حفظ أي حاجة يمسح تعديلات حد تاني
+   بعمل حاجة مختلفة تمامًا في نفس الوقت. كمان كل حفظ بيعمل "دمج" مع آخر نسخة على
+   السيرفر بدل الكتابة فوقها بالكامل، عشان لو حد تاني ضاف صنف جديد من وقت ما حمّلنا
+   إحنا الصفحة، الصنف ده ميتمسحش. */
+const DB_KEYS = ['settings','users','raw','production','waste','breakdowns','purchases','purchaseRequests','whManufacturing','whPackaging','whFinished','transfers','dispatches','importedOrders','suppliers','itemCard','auditLog','knownUsers','cairoRequests','fillingReports','productionReports'];
+function collKey(k){ return STORAGE_KEY + '__' + k; }
+let SERVER_IDS = {}; // key -> مجموعة الـ id بتاعة آخر نسخة معروفة من السيرفر لكل مجموعة بيانات (تُستخدم في الدمج)
+let LOCAL_SNAPSHOT = {}; // key -> آخر نسخة (JSON) اتحفظت أو اتحمّلت لنفس الجلسة — لو المجموعة متغيّرتش محليًا نتجاهلها تمامًا في الحفظ عشان ميتلمسش أي تعديل حد تاني عملها في نفس المجموعة من غير علمنا
+function idsOf(arr){ return new Set((Array.isArray(arr)?arr:[]).map(x=>x && x.id).filter(Boolean)); }
+
+// دمج نسختنا المحلية مع آخر نسخة على السيرفر لنفس المجموعة: أي صنف جديد ضافه حد
+// تاني (مش موجود عندنا محليًا ولا كنا عارفينه من قبل) بيتضاف، مش بيتمسح.
+function mergeCollection(key, localVal, serverVal){
+  if(!Array.isArray(localVal)) return localVal; // قيم مش array (زي الإعدادات) — نسختنا المحلية هي اللي بتتحفظ
+  const local = localVal, server = Array.isArray(serverVal) ? serverVal : [];
+  const localIds = idsOf(local);
+  const known = SERVER_IDS[key] || new Set();
+  const merged = local.slice();
+  server.forEach(s=>{
+    if(s && s.id && !localIds.has(s.id) && !known.has(s.id)) merged.push(s);
+  });
+  return merged;
+}
+
+function applyDBDefaultsAndMigrations(){
       if(!DB.settings) DB.settings = {lowStockThreshold:10, orderSystemUrl:'https://amrentag.vercel.app/'};
       if(!DB.settings.orderSystemUrl) DB.settings.orderSystemUrl = 'https://amrentag.vercel.app/';
       if(!DB.users || !Array.isArray(DB.users) || !DB.users.length){
@@ -865,12 +887,40 @@ async function loadDB(){
       if(!DB.cairoRequests) DB.cairoRequests = [];
       if(!DB.fillingReports) DB.fillingReports = [];
       if(!DB.productionReports) DB.productionReports = [];
+}
+
+async function loadDB(){
+  try{
+    // نحاول الأول نقرا كل مجموعة من مستندها المستقل
+    const results = await Promise.all(DB_KEYS.map(k=>StorageAPI.get(collKey(k))));
+    const anyFound = results.some(r=>r && r.value);
+    if(anyFound){
+      DB = {};
+      DB_KEYS.forEach((k,i)=>{
+        const r = results[i];
+        DB[k] = (r && r.value) ? JSON.parse(r.value) : (k==='settings' ? {} : []);
+      });
+      applyDBDefaultsAndMigrations();
+      DB_KEYS.forEach(k=>{ if(Array.isArray(DB[k])) SERVER_IDS[k] = idsOf(DB[k]); });
       await persist(true);
+      DB_KEYS.forEach(k=>{ LOCAL_SNAPSHOT[k] = JSON.stringify(DB[k]); });
+      return;
+    }
+    // مفيش ولا مستند مقسّم — نجرب المستند القديم (نسخة قبل هذا الإصلاح) ونرحّل بياناته
+    const legacy = await StorageAPI.get(STORAGE_KEY);
+    if(legacy && legacy.value){
+      DB = JSON.parse(legacy.value);
+      applyDBDefaultsAndMigrations();
+      DB_KEYS.forEach(k=>{ if(DB[k]===undefined) DB[k] = (k==='settings'?{}:[]); if(Array.isArray(DB[k])) SERVER_IDS[k] = idsOf(DB[k]); });
+      await persist(true);
+      DB_KEYS.forEach(k=>{ LOCAL_SNAPSHOT[k] = JSON.stringify(DB[k]); });
       return;
     }
   }catch(e){ /* not found */ }
   DB = freshDB();
+  DB_KEYS.forEach(k=>{ if(Array.isArray(DB[k])) SERVER_IDS[k] = idsOf(DB[k]); });
   await persist(true);
+  DB_KEYS.forEach(k=>{ LOCAL_SNAPSHOT[k] = JSON.stringify(DB[k]); });
 }
 
 async function persist(silent){
@@ -882,7 +932,20 @@ async function persist(silent){
   return new Promise((resolve)=>{
     saveTimer = setTimeout(async ()=>{
       try{
-        await StorageAPI.set(STORAGE_KEY, JSON.stringify(DB), false);
+        await Promise.all(DB_KEYS.map(async (k)=>{
+          const localJson = JSON.stringify(DB[k]);
+          if(LOCAL_SNAPSHOT[k] === localJson) return; // المجموعة دي متغيّرتش عندنا محليًا خالص — متلمسهاش نهائي عشان تعديلات أي حد تاني فيها تفضل زي ما هي
+          let serverVal = null;
+          try{
+            const r = await StorageAPI.get(collKey(k));
+            serverVal = (r && r.value) ? JSON.parse(r.value) : null;
+          }catch(e){ /* هنعتبره مفيش نسخة سيرفر معروفة */ }
+          const merged = mergeCollection(k, DB[k], serverVal);
+          DB[k] = merged;
+          if(Array.isArray(merged)) SERVER_IDS[k] = idsOf(merged);
+          await StorageAPI.set(collKey(k), JSON.stringify(merged));
+          LOCAL_SNAPSHOT[k] = JSON.stringify(merged);
+        }));
         document.getElementById('saveDot').classList.remove('saving');
         document.getElementById('saveText').textContent = 'محفوظ';
       }catch(e){
@@ -3980,10 +4043,9 @@ function playNotifBeep(){
 async function pollCairoRequests(){
   if(!currentUser || currentUser.role==='cairo') return;
   try{
-    const res = await StorageAPI.get(STORAGE_KEY, false);
+    const res = await StorageAPI.get(collKey('cairoRequests'));
     if(!res || !res.value) return;
-    const remote = JSON.parse(res.value);
-    const remoteList = remote.cairoRequests || [];
+    const remoteList = JSON.parse(res.value) || [];
     const newOnes = remoteList.filter(r=> !knownCairoRequestIds.has(r.id));
     if(newOnes.length){
       newOnes.forEach(r=>{
