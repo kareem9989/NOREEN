@@ -715,33 +715,22 @@ const StorageAPI = (function(){
     return window.storage;
   }
   return {
+    // مهم: لو Firebase مش متاح أو فشل، بنرمي خطأ بدل ما نحفظ في المتصفح بس في السر
+    // (عشان النظام ميقولش "محفوظ" والداتا في الحقيقة متحفظتش على السيرفر)
     async get(key){
-      try{
-        const ready = await waitForFirebase(4000);
-        if(ready){
-          const {doc,getDoc}=window.fbFns;
-          const snap = await getDoc(doc(window.db, FIRESTORE_COLLECTION, key));
-          if(!snap.exists()) return null;
-          return {key, value: snap.data().value, shared:false};
-        }
-      }catch(e){ console.error('Firestore get failed, falling back to localStorage:', e); }
-      try{
-        const v = localStorage.getItem(key);
-        if(v===null) return null;
-        return {key, value:v, shared:false};
-      }catch(e){ return null; }
+      const ready = await waitForFirebase(8000);
+      if(!ready) throw new Error('FIREBASE_UNAVAILABLE');
+      const {doc,getDoc}=window.fbFns;
+      const snap = await getDoc(doc(window.db, FIRESTORE_COLLECTION, key));
+      if(!snap.exists()) return null;
+      return {key, value: snap.data().value, shared:false};
     },
     async set(key, value){
-      try{
-        const ready = await waitForFirebase(4000);
-        if(ready){
-          const {doc,setDoc}=window.fbFns;
-          await setDoc(doc(window.db, FIRESTORE_COLLECTION, key), {value, updatedAt:new Date().toISOString()});
-          return {key, value, shared:false};
-        }
-      }catch(e){ console.error('Firestore set failed, falling back to localStorage:', e); }
-      try{ localStorage.setItem(key, value); return {key, value, shared:false}; }
-      catch(e){ return null; }
+      const ready = await waitForFirebase(8000);
+      if(!ready) throw new Error('FIREBASE_UNAVAILABLE');
+      const {doc,setDoc}=window.fbFns;
+      await setDoc(doc(window.db, FIRESTORE_COLLECTION, key), {value, updatedAt:new Date().toISOString()});
+      return {key, value, shared:false};
     },
     async delete(key){
       try{ localStorage.removeItem(key); return {key, deleted:true, shared:false}; }
@@ -804,22 +793,80 @@ function freshDB(){
    إحنا الصفحة، الصنف ده ميتمسحش. */
 const DB_KEYS = ['settings','users','raw','production','waste','breakdowns','purchases','purchaseRequests','whManufacturing','whPackaging','whFinished','transfers','dispatches','importedOrders','suppliers','itemCard','auditLog','knownUsers','cairoRequests','fillingReports','productionReports'];
 function collKey(k){ return STORAGE_KEY + '__' + k; }
-let SERVER_IDS = {}; // key -> مجموعة الـ id بتاعة آخر نسخة معروفة من السيرفر لكل مجموعة بيانات (تُستخدم في الدمج)
-let LOCAL_SNAPSHOT = {}; // key -> آخر نسخة (JSON) اتحفظت أو اتحمّلت لنفس الجلسة — لو المجموعة متغيّرتش محليًا نتجاهلها تمامًا في الحفظ عشان ميتلمسش أي تعديل حد تاني عملها في نفس المجموعة من غير علمنا
-function idsOf(arr){ return new Set((Array.isArray(arr)?arr:[]).map(x=>x && x.id).filter(Boolean)); }
+let LOCAL_SNAPSHOT = {}; // key -> آخر نسخة متفق عليها مع السيرفر (JSON للمجموعة كلها)
+let ITEM_SNAPSHOT = {};  // key -> Map(id -> JSON لكل صنف) من آخر نسخة متفق عليها مع السيرفر
+const MAX_ITEM_HISTORY = 300; // أقصى عدد حركات محفوظة لكل صنف (عشان المستند ميعديش حد Firestore 1MB)
+const DOC_WARN_BYTES = 850*1024;
 
-// دمج نسختنا المحلية مع آخر نسخة على السيرفر لنفس المجموعة: أي صنف جديد ضافه حد
-// تاني (مش موجود عندنا محليًا ولا كنا عارفينه من قبل) بيتضاف، مش بيتمسح.
+function takeSnapshot(k){
+  LOCAL_SNAPSHOT[k] = JSON.stringify(DB[k]);
+  if(Array.isArray(DB[k])){
+    const m = new Map();
+    DB[k].forEach(it=>{ if(it && it.id) m.set(it.id, JSON.stringify(it)); });
+    ITEM_SNAPSHOT[k] = m;
+  } else {
+    ITEM_SNAPSHOT[k] = null;
+  }
+}
+
+// دمج على مستوى الصنف الواحد:
+// - الأصناف اللي إحنا عدّلناها/ضفناها محليًا => نسختنا هي اللي بتتحفظ
+// - الأصناف اللي إحنا حذفناها محليًا => بتتحذف
+// - أي حاجة تانية (تعديل/إضافة/حذف عملها حد تاني) => نسخة السيرفر هي اللي بتفضل
 function mergeCollection(key, localVal, serverVal){
-  if(!Array.isArray(localVal)) return localVal; // قيم مش array (زي الإعدادات) — نسختنا المحلية هي اللي بتتحفظ
-  const local = localVal, server = Array.isArray(serverVal) ? serverVal : [];
-  const localIds = idsOf(local);
-  const known = SERVER_IDS[key] || new Set();
-  const merged = local.slice();
-  server.forEach(s=>{
-    if(s && s.id && !localIds.has(s.id) && !known.has(s.id)) merged.push(s);
+  if(!Array.isArray(localVal)){
+    // settings: دمج على مستوى المفتاح — المفاتيح اللي إحنا غيرناها بس هي اللي بتكتب فوق السيرفر
+    if(localVal && typeof localVal==='object' && serverVal && typeof serverVal==='object'){
+      let base = {};
+      try{ base = JSON.parse(LOCAL_SNAPSHOT[key]||'{}')||{}; }catch(e){}
+      const out = {...serverVal};
+      Object.keys(localVal).forEach(k=>{
+        if(JSON.stringify(localVal[k])!==JSON.stringify(base[k])) out[k]=localVal[k];
+      });
+      Object.keys(base).forEach(k=>{ if(!(k in localVal)) delete out[k]; });
+      return out;
+    }
+    return localVal;
+  }
+  const server = Array.isArray(serverVal) ? serverVal : [];
+  const snap = ITEM_SNAPSHOT[key] || new Map();
+  const localMap = new Map();
+  localVal.forEach(it=>{ if(it && it.id) localMap.set(it.id, it); });
+
+  const changed = new Map(); // id -> local item (اتعدل أو اتضاف عندنا)
+  localVal.forEach(it=>{
+    if(!it || !it.id) return;
+    const before = snap.get(it.id);
+    if(before===undefined || before!==JSON.stringify(it)) changed.set(it.id, it);
   });
-  return merged;
+  const deletedLocally = new Set();
+  snap.forEach((_,id)=>{ if(!localMap.has(id)) deletedLocally.add(id); });
+
+  const serverIds = new Set();
+  const merged = [];
+  server.forEach(sv=>{
+    if(!sv || !sv.id){ merged.push(sv); return; }
+    serverIds.add(sv.id);
+    if(deletedLocally.has(sv.id)) return;
+    merged.push(changed.has(sv.id) ? changed.get(sv.id) : sv);
+  });
+  // أصناف جديدة عندنا (أو اتعدلت عندنا بعد ما حد تاني حذفها — بنحتفظ بتعديلنا)
+  const newOnes = [];
+  localVal.forEach(it=>{
+    if(it && it.id && !serverIds.has(it.id) && changed.has(it.id)) newOnes.push(it);
+  });
+  // الأصناف الجديدة بتتحط في نفس ترتيبها المحلي (غالبًا فوق)
+  return newOnes.concat(merged);
+}
+
+function trimHistories(){
+  ['raw','whManufacturing','whPackaging','whFinished','suppliers'].forEach(k=>{
+    (DB[k]||[]).forEach(it=>{
+      if(Array.isArray(it.history) && it.history.length>MAX_ITEM_HISTORY){
+        it.history = it.history.slice(-MAX_ITEM_HISTORY);
+      }
+    });
+  });
 }
 
 function applyDBDefaultsAndMigrations(){
@@ -890,70 +937,205 @@ function applyDBDefaultsAndMigrations(){
 }
 
 async function loadDB(){
-  try{
-    // نحاول الأول نقرا كل مجموعة من مستندها المستقل
-    const results = await Promise.all(DB_KEYS.map(k=>StorageAPI.get(collKey(k))));
-    const anyFound = results.some(r=>r && r.value);
-    if(anyFound){
-      DB = {};
-      DB_KEYS.forEach((k,i)=>{
-        const r = results[i];
-        DB[k] = (r && r.value) ? JSON.parse(r.value) : (k==='settings' ? {} : []);
-      });
-      applyDBDefaultsAndMigrations();
-      DB_KEYS.forEach(k=>{ if(Array.isArray(DB[k])) SERVER_IDS[k] = idsOf(DB[k]); });
-      await persist(true);
-      DB_KEYS.forEach(k=>{ LOCAL_SNAPSHOT[k] = JSON.stringify(DB[k]); });
-      return;
-    }
-    // مفيش ولا مستند مقسّم — نجرب المستند القديم (نسخة قبل هذا الإصلاح) ونرحّل بياناته
-    const legacy = await StorageAPI.get(STORAGE_KEY);
-    if(legacy && legacy.value){
-      DB = JSON.parse(legacy.value);
-      applyDBDefaultsAndMigrations();
-      DB_KEYS.forEach(k=>{ if(DB[k]===undefined) DB[k] = (k==='settings'?{}:[]); if(Array.isArray(DB[k])) SERVER_IDS[k] = idsOf(DB[k]); });
-      await persist(true);
-      DB_KEYS.forEach(k=>{ LOCAL_SNAPSHOT[k] = JSON.stringify(DB[k]); });
-      return;
-    }
-  }catch(e){ /* not found */ }
+  // لو القراءة من السيرفر فشلت (نت/Firebase) بنرمي الخطأ لفوق — مش بنبدأ بداتا فاضية
+  // عشان ده كان ممكن يكتب داتا تجريبية فوق الداتا الحقيقية
+  const results = await Promise.all(DB_KEYS.map(k=>StorageAPI.get(collKey(k))));
+  const anyFound = results.some(r=>r && r.value);
+  if(anyFound){
+    DB = {};
+    DB_KEYS.forEach((k,i)=>{
+      const r = results[i];
+      DB[k] = (r && r.value) ? JSON.parse(r.value) : (k==='settings' ? {} : []);
+      // الـ snapshot = اللي على السيرفر فعلاً (قبل الترحيلات) عشان أي ترحيل يتحفظ صح
+      LOCAL_SNAPSHOT[k] = JSON.stringify(DB[k]);
+      const m = new Map();
+      if(Array.isArray(DB[k])) DB[k].forEach(it=>{ if(it && it.id) m.set(it.id, JSON.stringify(it)); });
+      ITEM_SNAPSHOT[k] = Array.isArray(DB[k]) ? m : null;
+    });
+    applyDBDefaultsAndMigrations();
+    await persist(true);
+    return;
+  }
+  const legacy = await StorageAPI.get(STORAGE_KEY);
+  if(legacy && legacy.value){
+    DB = JSON.parse(legacy.value);
+    applyDBDefaultsAndMigrations();
+    DB_KEYS.forEach(k=>{ if(DB[k]===undefined) DB[k] = (k==='settings'?{}:[]); });
+    await persist(true);
+    return;
+  }
+  // السيرفر شغال فعلاً ومفيهوش أي داتا => أول تشغيل
   DB = freshDB();
-  DB_KEYS.forEach(k=>{ if(Array.isArray(DB[k])) SERVER_IDS[k] = idsOf(DB[k]); });
   await persist(true);
-  DB_KEYS.forEach(k=>{ LOCAL_SNAPSHOT[k] = JSON.stringify(DB[k]); });
 }
 
-async function persist(silent){
-  if(!silent){
-    document.getElementById('saveDot').classList.add('saving');
-    document.getElementById('saveText').textContent = 'جارِ الحفظ…';
-  }
-  clearTimeout(saveTimer);
-  return new Promise((resolve)=>{
-    saveTimer = setTimeout(async ()=>{
-      try{
-        await Promise.all(DB_KEYS.map(async (k)=>{
-          const localJson = JSON.stringify(DB[k]);
-          if(LOCAL_SNAPSHOT[k] === localJson) return; // المجموعة دي متغيّرتش عندنا محليًا خالص — متلمسهاش نهائي عشان تعديلات أي حد تاني فيها تفضل زي ما هي
-          let serverVal = null;
-          try{
-            const r = await StorageAPI.get(collKey(k));
-            serverVal = (r && r.value) ? JSON.parse(r.value) : null;
-          }catch(e){ /* هنعتبره مفيش نسخة سيرفر معروفة */ }
-          const merged = mergeCollection(k, DB[k], serverVal);
-          DB[k] = merged;
-          if(Array.isArray(merged)) SERVER_IDS[k] = idsOf(merged);
-          await StorageAPI.set(collKey(k), JSON.stringify(merged));
-          LOCAL_SNAPSHOT[k] = JSON.stringify(merged);
-        }));
-        document.getElementById('saveDot').classList.remove('saving');
-        document.getElementById('saveText').textContent = 'محفوظ';
-      }catch(e){
-        document.getElementById('saveText').textContent = 'تعذر الحفظ';
+/* ---------- الحفظ: طابور واحد، ومفيش أي حفظ بيعلّق ---------- */
+let persistWaiters = [];
+let saveChain = Promise.resolve();
+let isSaving = false;
+let saveFailed = false;
+let retryTimer = null;
+
+function setSaveUI(state){
+  const dot = document.getElementById('saveDot');
+  const txt = document.getElementById('saveText');
+  if(!dot||!txt) return;
+  dot.classList.toggle('saving', state==='saving');
+  dot.style.background = state==='error' ? 'var(--danger)' : '';
+  txt.style.color = state==='error' ? 'var(--danger)' : '';
+  txt.textContent = state==='saving' ? 'جارِ الحفظ…' : (state==='error' ? '⚠ لم يتم الحفظ — جارِ إعادة المحاولة' : 'محفوظ');
+}
+
+async function doSaveAll(){
+  trimHistories();
+  const failures = [];
+  await Promise.all(DB_KEYS.map(async (k)=>{
+    const localJson = JSON.stringify(DB[k]);
+    if(LOCAL_SNAPSHOT[k] === localJson) return;
+    try{
+      const r = await StorageAPI.get(collKey(k));
+      const serverVal = (r && r.value) ? JSON.parse(r.value) : null;
+      const merged = mergeCollection(k, DB[k], serverVal);
+      const out = JSON.stringify(merged);
+      if(out.length > DOC_WARN_BYTES) console.warn('حجم مستند', k, 'قرب من الحد:', out.length);
+      await StorageAPI.set(collKey(k), out);
+      // لو المستخدم عدّل حاجة تانية أثناء الحفظ، منمسحهاش: بندمج تاني بعد الحفظ
+      const localNow = JSON.stringify(DB[k]);
+      if(localNow === localJson){
+        DB[k] = merged;
+        takeSnapshot(k);
+      } else {
+        const savedArr = merged;
+        // نخلي الـ snapshot = اللي اتحفظ فعلاً، والتعديلات الجديدة تتحفظ في الدورة الجاية
+        DB[k] = mergeCollectionAfterSave(k, DB[k], savedArr, localJson);
+        LOCAL_SNAPSHOT[k] = out;
+        const m = new Map();
+        if(Array.isArray(savedArr)) savedArr.forEach(it=>{ if(it && it.id) m.set(it.id, JSON.stringify(it)); });
+        ITEM_SNAPSHOT[k] = Array.isArray(savedArr) ? m : null;
       }
-      resolve();
+    }catch(e){
+      console.error('فشل حفظ', k, e);
+      failures.push(k);
+    }
+  }));
+  if(failures.length) throw new Error('SAVE_FAILED:'+failures.join(','));
+}
+
+// بعد الحفظ، لو فيه تعديلات محلية حصلت أثناء الحفظ: ناخد نسخة السيرفر ونرجّع عليها تعديلاتنا الجديدة بس
+function mergeCollectionAfterSave(k, localNowArr, savedArr, localAtSaveJson){
+  if(!Array.isArray(localNowArr)) return localNowArr;
+  let atSave=[]; try{ atSave=JSON.parse(localAtSaveJson)||[]; }catch(e){}
+  const atSaveMap = new Map(atSave.map(it=>[it.id, JSON.stringify(it)]));
+  const nowMap = new Map(localNowArr.map(it=>[it.id, it]));
+  const out = [];
+  const seen = new Set();
+  localNowArr.forEach(it=>{ if(!atSaveMap.has(it.id)){ out.push(it); seen.add(it.id);} }); // جديد أثناء الحفظ
+  savedArr.forEach(sv=>{
+    if(!sv || !sv.id){ out.push(sv); return; }
+    if(seen.has(sv.id)) return;
+    if(atSaveMap.has(sv.id) && !nowMap.has(sv.id)) return; // اتحذف أثناء الحفظ
+    const cur = nowMap.get(sv.id);
+    if(cur && atSaveMap.get(sv.id)!==JSON.stringify(cur)) out.push(cur); else out.push(sv);
+  });
+  return out;
+}
+
+function persist(silent){
+  if(!silent) setSaveUI('saving');
+  return new Promise((resolve)=>{
+    persistWaiters.push(resolve);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(()=>{
+      saveTimer = null;
+      const waiters = persistWaiters;
+      persistWaiters = [];
+      saveChain = saveChain.then(async ()=>{
+        isSaving = true;
+        try{
+          await doSaveAll();
+          saveFailed = false;
+          setSaveUI('ok');
+        }catch(e){
+          saveFailed = true;
+          setSaveUI('error');
+          showToast('⚠ الحفظ على السيرفر فشل (تأكد من النت) — هنعيد المحاولة تلقائي');
+          clearTimeout(retryTimer);
+          retryTimer = setTimeout(()=>persist(true), 15000);
+        }finally{
+          isSaving = false;
+          waiters.forEach(r=>r());
+        }
+      });
     }, silent?0:250);
   });
+}
+
+// تحذير لو المستخدم قفل الصفحة والداتا لسه متحفظتش
+window.addEventListener('beforeunload', (e)=>{
+  if(saveTimer || isSaving || saveFailed){ e.preventDefault(); e.returnValue=''; }
+});
+
+/* ---------- مزامنة تلقائية: بنجيب تعديلات باقي الأجهزة كل 20 ثانية ---------- */
+function hasPendingLocalChanges(){
+  return DB_KEYS.some(k=> LOCAL_SNAPSHOT[k] !== JSON.stringify(DB[k]));
+}
+function userIsBusy(){
+  const a = document.activeElement;
+  const typing = a && (a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT');
+  const modalOpen = !!document.querySelector('#modalRoot .modal-overlay, #drawerRoot .drawer');
+  return typing || modalOpen;
+}
+async function syncFromServer(){
+  if(!DB || !currentUser) return;
+  if(saveTimer || isSaving || saveFailed) return;
+  if(hasPendingLocalChanges()) return;
+  let changedAny = false;
+  const newCairo = [];
+  try{
+    const results = await Promise.all(DB_KEYS.map(k=>StorageAPI.get(collKey(k))));
+    if(saveTimer || isSaving || hasPendingLocalChanges()) return; // المستخدم عمل حاجة أثناء التحميل
+    DB_KEYS.forEach((k,i)=>{
+      const r = results[i];
+      if(!r || !r.value) return;
+      if(r.value === LOCAL_SNAPSHOT[k]) return;
+      const val = JSON.parse(r.value);
+      if(k==='cairoRequests' && Array.isArray(val)){
+        const known = new Set((DB.cairoRequests||[]).map(x=>x.id));
+        val.forEach(x=>{ if(!known.has(x.id)) newCairo.push(x); });
+      }
+      DB[k] = val;
+      takeSnapshot(k);
+      changedAny = true;
+    });
+  }catch(e){ return; }
+  if(!changedAny) return;
+  // التحقق من إن المستخدم الحالي لسه موجود وصلاحيته زي ما هي
+  const u = (DB.users||[]).find(x=>x.username===currentUser.username);
+  if(!u){ logoutUser(); return; }
+  if(u.role!==currentUser.role){ currentUser.role=u.role; isAdmin = u.role==='admin'; renderAdminArea(); }
+  if(newCairo.length && currentUser.role!=='cairo'){
+    playNotifBeep();
+    const label = newCairo.length===1 ? (CR_TYPE_LABEL[newCairo[0].type]?CR_TYPE_LABEL[newCairo[0].type].label:'طلب') : `${newCairo.length} طلبات`;
+    showToast(`📩 طلب جديد من القاهرة (${label})`);
+  }
+  renderNav();
+  if(!userIsBusy()){
+    if(!isTabAllowed(currentTab)) setTab(firstAllowedTab());
+    else refreshCurrentTabKeepingFilters();
+  }
+}
+function refreshCurrentTabKeepingFilters(){
+  const saved = {...tableState};
+  const savedSel = new Set(selectedProdGroups);
+  const y = window.scrollY;
+  renderContent();
+  // renderContent بيصفّر الفلاتر — نرجّعها
+  if(CONFIGS[currentTab] && (saved.search||saved.filter||saved.fromDate||saved.toDate||savedSel.size)){
+    tableState = saved;
+    savedSel.forEach(k=>selectedProdGroups.add(k));
+    renderGenericTab(currentTab);
+  }
+  window.scrollTo(0,y);
 }
 
 /* ================= UTIL ================= */
@@ -2285,6 +2467,8 @@ function openItemModal(tabId, item, presetVals){
       opts = f.options || [];
       if(f.dynamicOptions==='orders'){
         opts = getAllOrderNames();
+        // السجلات القديمة (زي "السعوديه") ممكن أوردرها مش موجود في أوردرات العملاء — نحافظ عليه
+        if(v && !opts.includes(v)) opts = [v, ...opts];
       }
       inputHtml = `<select id="${id}">
         <option value="">— اختر الاوردر —</option>
@@ -2341,7 +2525,14 @@ function openItemModal(tabId, item, presetVals){
     if(missingRequired){ showToast('من فضلك املأ الحقول المطلوبة (*)'); return; }
 
     if(isEdit){
+      const oldBal = Number(item.balance);
       Object.assign(item, newData);
+      if(Array.isArray(item.history) && newData.balance!==undefined && newData.balance!==null && !Number.isNaN(oldBal)){
+        const diff = Math.round((Number(newData.balance) - oldBal)*100)/100;
+        if(diff){
+          item.history.push({date: todayISO(), ts: new Date().toISOString(), type: diff>0?'اضافه':'صرف', qty: Math.abs(diff), notes:'تعديل يدوي للرصيد', by: userTag()});
+        }
+      }
       logAction(`عدّل "${newData.name||newData.description||'عنصر'}" في ${TITLES[tabId][0]}`);
     } else {
       const rec = {id: uid(), ...newData};
@@ -3988,7 +4179,9 @@ function showLoginScreen(){
     const user = (DB.users||[]).find(u=> u.username.toLowerCase()===username);
     if(user && user.password===pass){
       currentUser = {username:user.username, role:user.role, name:user.name||user.username};
-      try{ localStorage.setItem(AUTH_KEY, JSON.stringify(currentUser)); }catch(e){ /* ignore */ }
+      sessionCheck(user.username, user.password).then(chk=>{
+        try{ localStorage.setItem(AUTH_KEY, JSON.stringify({username:user.username, chk})); }catch(e){ /* ignore */ }
+      });
       errBox.classList.add('hidden');
       passInput.value = '';
       logAction(`تسجيل دخول (${user.name||user.username})`);
@@ -4040,46 +4233,23 @@ function playNotifBeep(){
   }catch(e){ /* الصوت مش شرط أساسي، لو المتصفح رفض نتجاهل بهدوء */ }
 }
 
-async function pollCairoRequests(){
-  if(!currentUser || currentUser.role==='cairo') return;
-  try{
-    const res = await StorageAPI.get(collKey('cairoRequests'));
-    if(!res || !res.value) return;
-    const remoteList = JSON.parse(res.value) || [];
-    const newOnes = remoteList.filter(r=> !knownCairoRequestIds.has(r.id));
-    if(newOnes.length){
-      newOnes.forEach(r=>{
-        const exists = (DB.cairoRequests||[]).some(x=>x.id===r.id);
-        if(!exists){ if(!DB.cairoRequests) DB.cairoRequests=[]; DB.cairoRequests.unshift(r); }
-      });
-      playNotifBeep();
-      const label = newOnes.length===1 ? (CR_TYPE_LABEL[newOnes[0].type]?CR_TYPE_LABEL[newOnes[0].type].label:'طلب') : `${newOnes.length} طلبات`;
-      showToast(`📩 طلب جديد من القاهرة (${label})`);
-      renderNav();
-      if(currentTab==='cairoRequests') renderCairoRequestsTab();
-    }
-    remoteList.forEach(r=> knownCairoRequestIds.add(r.id));
-  }catch(e){ /* تجاهل أخطاء الشبكة المؤقتة */ }
-}
-
+let syncTimer = null;
 function startCairoPolling(){
-  knownCairoRequestIds = new Set((DB.cairoRequests||[]).map(r=>r.id));
-  if(cairoPollTimer) clearInterval(cairoPollTimer);
-  if(currentUser && currentUser.role!=='cairo'){
-    cairoPollTimer = setInterval(pollCairoRequests, 20000);
-    const unlockAudio = ()=>{
-      try{
-        if(!window._notifAudioCtx){ window._notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-        if(window._notifAudioCtx.state==='suspended'){ window._notifAudioCtx.resume(); }
-      }catch(e){}
-      document.removeEventListener('click', unlockAudio);
-    };
-    document.addEventListener('click', unlockAudio);
-  }
+  if(syncTimer) clearInterval(syncTimer);
+  syncTimer = setInterval(syncFromServer, 20000);
+  const unlockAudio = ()=>{
+    try{
+      if(!window._notifAudioCtx){ window._notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+      if(window._notifAudioCtx.state==='suspended'){ window._notifAudioCtx.resume(); }
+    }catch(e){}
+    document.removeEventListener('click', unlockAudio);
+  };
+  document.addEventListener('click', unlockAudio);
 }
 function stopCairoPolling(){
-  if(cairoPollTimer){ clearInterval(cairoPollTimer); cairoPollTimer=null; }
+  if(syncTimer){ clearInterval(syncTimer); syncTimer=null; }
 }
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) syncFromServer(); });
 
 function logoutUser(){
   if(currentUser){ logAction('تسجيل خروج'); persist(true); }
@@ -4106,18 +4276,47 @@ function enterApp(){
 }
 
 /* ================= BOOT ================= */
+// بصمة الجلسة: مشتقة من اسم المستخدم + كلمة السر الحالية. الصلاحية نفسها مش بتتخزن في المتصفح
+// خالص — بتتقري كل مرة من قائمة المستخدمين على السيرفر. ولو كلمة السر اتغيرت الجلسة بتقع.
+async function sessionCheck(username, password){
+  const data = new TextEncoder().encode('egygulf|'+username+'|'+password);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+function showLoadError(){
+  const l = document.getElementById('loading');
+  l.classList.remove('hidden');
+  l.innerHTML = `<div style="font-size:34px">⚠</div>
+    <div style="font-weight:800;color:var(--danger);font-size:16px;">تعذر الاتصال بالسيرفر</div>
+    <div class="muted" style="max-width:340px;text-align:center;font-size:13px;">تأكد إن النت شغال وحاول تاني. النظام مش هيفتح من غير اتصال عشان محدش يشتغل على داتا قديمة وتضيع.</div>
+    <button class="btn btn-primary" onclick="location.reload()">إعادة المحاولة</button>`;
+}
+
 async function boot(){
   await loadTheme();
   document.getElementById('themeToggle').addEventListener('click', toggleTheme);
-  await loadDB();
+  try{
+    await loadDB();
+  }catch(e){
+    console.error(e);
+    showLoadError();
+    return;
+  }
   initNotifBell();
   updateNotifBell();
   let stored = null;
   try{ stored = JSON.parse(localStorage.getItem(AUTH_KEY)||'null'); }catch(e){ /* ignore */ }
-  if(stored && stored.username && (DB.users||[]).some(u=> u.username===stored.username)){
-    currentUser = stored;
+  const user = stored && stored.username ? (DB.users||[]).find(u=> u.username===stored.username) : null;
+  let ok = false;
+  if(user && stored.chk){
+    try{ ok = (await sessionCheck(user.username, user.password)) === stored.chk; }catch(e){ ok=false; }
+  }
+  if(ok){
+    currentUser = {username:user.username, role:user.role, name:user.name||user.username};
     enterApp();
   } else {
+    try{ localStorage.removeItem(AUTH_KEY); }catch(e){}
     showLoginScreen();
   }
 }
