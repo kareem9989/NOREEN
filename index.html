@@ -604,7 +604,7 @@ tr.detail-row.dim td{color:var(--ink-soft);}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026</div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 28-9 — v7</span></div>
   </aside>
 
   <div class="main">
@@ -677,7 +677,7 @@ const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
 const WAREHOUSE_TABS = ['raw','whManufacturing','purchaseRequests','transfers']; // أمين مخزن الخامات
 const ROLE_TABS = { // كل مخزن ليه أمين لوحده
-  whman:  ['whManufacturing','raw','transfers'],
+  whman:  ['whManufacturing','raw','transfers','purchaseRequests'],
   whpack: ['whPackaging','raw','transfers','purchaseRequests'],
   whfin:  ['whFinished','transfers'],
 };
@@ -4153,7 +4153,7 @@ function openUserEditModal(userId){
             <select id="f_userrole">
               <option value="admin" ${u&&u.role==='admin'?'selected':''}>أدمن (كل الصلاحيات)</option>
               <option value="warehouse" ${u&&u.role==='warehouse'?'selected':''}>أمين مخزن الخامات (الخامات + التصنيع + طلبات المشتريات + تحويل للتصنيع)</option>
-              <option value="whman" ${u&&u.role==='whman'?'selected':''}>أمين مخزن التصنيع (مخزنه + عرض الخامات + تحويل للتعبئة)</option>
+              <option value="whman" ${u&&u.role==='whman'?'selected':''}>أمين مخزن التصنيع (مخزنه + عرض الخامات + طلبات المشتريات + تحويل للتعبئة)</option>
               <option value="whpack" ${u&&u.role==='whpack'?'selected':''}>أمين مخزن التعبئة والتغليف (مخزنه + عرض الأكياس والعبوات والكراتين والاستيكر + طلبات المشتريات + تحويل للتام)</option>
               <option value="whfin" ${u&&u.role==='whfin'?'selected':''}>أمين مخزن الإنتاج التام (مخزنه + استلام التحويلات)</option>
               <option value="operation" ${u&&u.role==='operation'?'selected':''}>أوبريشن (المخازن + طلبات القاهرة، بدون مشتريات)</option>
