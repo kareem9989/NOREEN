@@ -675,14 +675,20 @@ let currentTab = 'dashboard';
 /* ================= AUTH (يوزرين: أدمن / أمين مخزن) ================= */
 const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
-const WAREHOUSE_TABS = ['raw','whManufacturing','whPackaging','whFinished','fillingReports','productionReports'];
+const WAREHOUSE_TABS = ['raw','transfers','purchaseRequests','fillingReports','productionReports']; // أمين مخزن الخامات
+const ROLE_TABS = { // كل مخزن ليه أمين لوحده
+  whman:  ['whManufacturing','transfers','fillingReports','productionReports'],
+  whpack: ['whPackaging','transfers','fillingReports','productionReports'],
+  whfin:  ['whFinished','transfers','fillingReports','productionReports'],
+};
 const CAIRO_TABS = ['cairoRequests','fillingReports','productionReports'];
-const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','cairoRequests','fillingReports','productionReports'];
+const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','transfers','cairoRequests','fillingReports','productionReports'];
 function isTabAllowed(tabId){
   if(!currentUser) return false;
   if(currentUser.role==='admin') return true;
   if(currentUser.role==='cairo') return CAIRO_TABS.includes(tabId);
   if(currentUser.role==='operation') return OPERATION_TABS.includes(tabId);
+  if(ROLE_TABS[currentUser.role]) return ROLE_TABS[currentUser.role].includes(tabId);
   return WAREHOUSE_TABS.includes(tabId);
 }
 function firstAllowedTab(){
@@ -690,6 +696,7 @@ function firstAllowedTab(){
   if(currentUser.role==='admin') return 'dashboard';
   if(currentUser.role==='cairo') return CAIRO_TABS[0];
   if(currentUser.role==='operation') return OPERATION_TABS[0];
+  if(ROLE_TABS[currentUser.role]) return ROLE_TABS[currentUser.role][0];
   return WAREHOUSE_TABS[0];
 }
 let saveTimer = null;
@@ -750,7 +757,10 @@ function uid(){ return 'i' + Math.random().toString(36).slice(2,10) + Date.now()
 function defaultUsers(){
   return [
     {id:uid(), username:'admin', password:'admin123', role:'admin', name:'أدمن'},
-    {id:uid(), username:'egygulf', password:'wh123', role:'warehouse', name:'أمين مخزن طنطا'},
+    {id:uid(), username:'egygulf', password:'wh123', role:'warehouse', name:'أمين مخزن الخامات'},
+    {id:uid(), username:'egyman', password:'man123', role:'whman', name:'أمين مخزن التصنيع'},
+    {id:uid(), username:'egypack', password:'pack123', role:'whpack', name:'أمين مخزن التعبئة والتغليف'},
+    {id:uid(), username:'egyfinish', password:'fin123', role:'whfin', name:'أمين مخزن الإنتاج التام'},
     {id:uid(), username:'egycairo', password:'cairo123', role:'cairo', name:'سيلز القاهرة'},
     {id:uid(), username:'operation', password:'op123', role:'operation', name:'أوبريشن'},
   ];
@@ -888,6 +898,14 @@ function applyDBDefaultsAndMigrations(){
         DB.users.push({id:uid(), username:'operation', password:'op123', role:'operation', name:'أوبريشن'});
       }
       DB.settings.operationUserSeeded = true;
+      // لو كان فيه يوزر من الدور القديم المجمّع، نحوّله لأمين مخزن التصنيع
+      DB.users.forEach(u=>{ if(u.role==='prodwh'){ u.role='whman'; if(u.name==='أمين مخزن التصنيع والتعبئة والتام') u.name='أمين مخزن التصنيع'; } });
+      if(!DB.settings.perWarehouseUsersSeeded){
+        [['egyman','man123','whman','أمين مخزن التصنيع'],['egypack','pack123','whpack','أمين مخزن التعبئة والتغليف'],['egyfinish','fin123','whfin','أمين مخزن الإنتاج التام']].forEach(([un,pw,role,name])=>{
+          if(!DB.users.some(u=>u.role===role) && !DB.users.some(u=>u.username===un)) DB.users.push({id:uid(), username:un, password:pw, role, name});
+        });
+        DB.settings.perWarehouseUsersSeeded = true;
+      }
       delete DB.settings.adminPassword;
       delete DB.settings.warehousePassword;
       delete DB.settings.cairoSalesPassword;
@@ -1091,6 +1109,7 @@ async function syncFromServer(){
   if(hasPendingLocalChanges()) return;
   let changedAny = false;
   const newCairo = [];
+  const newTransfers = [];
   try{
     const results = await Promise.all(DB_KEYS.map(k=>StorageAPI.get(collKey(k))));
     if(saveTimer || isSaving || hasPendingLocalChanges()) return; // المستخدم عمل حاجة أثناء التحميل
@@ -1099,6 +1118,10 @@ async function syncFromServer(){
       if(!r || !r.value) return;
       if(r.value === LOCAL_SNAPSHOT[k]) return;
       const val = JSON.parse(r.value);
+      if(k==='transfers' && Array.isArray(val)){
+        const known = new Set((DB.transfers||[]).map(x=>x.id));
+        val.forEach(x=>{ if(!known.has(x.id)) newTransfers.push(x); });
+      }
       if(k==='cairoRequests' && Array.isArray(val)){
         const known = new Set((DB.cairoRequests||[]).map(x=>x.id));
         val.forEach(x=>{ if(!known.has(x.id)) newCairo.push(x); });
@@ -1113,7 +1136,12 @@ async function syncFromServer(){
   const u = (DB.users||[]).find(x=>x.username===currentUser.username);
   if(!u){ logoutUser(); return; }
   if(u.role!==currentUser.role){ currentUser.role=u.role; isAdmin = u.role==='admin'; renderAdminArea(); }
-  if(newCairo.length && currentUser.role!=='cairo'){
+  const myIncoming = newTransfers.filter(t=>canReceive(t));
+  if(myIncoming.length){
+    playNotifBeep();
+    showToast(`📦 وصلك ${myIncoming.length===1?'تحويل جديد':myIncoming.length+' تحويلات جديدة'} — أكد الاستلام`);
+  }
+  if(newCairo.length && currentUser.role!=='cairo' && isTabAllowed('cairoRequests')){
     playNotifBeep();
     const label = newCairo.length===1 ? (CR_TYPE_LABEL[newCairo[0].type]?CR_TYPE_LABEL[newCairo[0].type].label:'طلب') : `${newCairo.length} طلبات`;
     showToast(`📩 طلب جديد من القاهرة (${label})`);
@@ -1229,7 +1257,7 @@ function renderNav(){
     else if(t.id==='whManufacturing') count = DB.whManufacturing.length;
     else if(t.id==='whPackaging') count = DB.whPackaging.length;
     else if(t.id==='whFinished') count = DB.whFinished.length;
-    else if(t.id==='transfers') count = DB.transfers.length;
+    else if(t.id==='transfers') count = pendingIncomingCount() || '';
     else if(t.id==='suppliers') count = DB.suppliers.length;
     else if(t.id==='itemCard') count = DB.itemCard.length;
     else if(t.id==='customerOrders') count = (DB.importedOrders||[]).length;
@@ -1927,6 +1955,8 @@ function renderGenericTab(tabId){
 
   let html = `
   ${tabId==='production' ? renderProductionSummary() : ''}
+  ${(()=>{ const w = TABID_TO_WHID[tabId]; if(!w) return ''; const n = DB.transfers.filter(t=>t.toWarehouse===w && canReceive(t)).length;
+      return n? `<div class="panel" style="padding:14px 18px;border-color:var(--warn);background:var(--warn-bg);margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">${svgIcon('alert')}<div style="flex:1"><strong>فيه ${n} تحويل جاي لمخزنك مستني تأكيد الاستلام.</strong></div><button class="btn btn-sm btn-primary" onclick="setTab('transfers')">راجع واستلم</button></div>` : ''; })()}
   ${subTabHtml}
   ${flavorsAlertHtml}
   <div class="panel">
@@ -2162,12 +2192,12 @@ function renderTableRows(tabId){
     if(isMinus && prevTabId){
       // بدل ما الكمية المصروفة تختفي، بترجع تلقائي لنفس الصنف في المخزن اللي قبله في السلسلة
       item.balance = Math.round((item.balance - amt)*100)/100;
-      cascadeReturnToPrev(tabId, item, amt);
-      logAction(`صرف ${fmtNum(amt)} من "${item.name}" (${TITLES[tabId][0]}) — رجعت تلقائي لـ ${TITLES[prevTabId][0]}`);
+      cascadeReturnToPrev(tabId, item, amt, null, true);
+      logAction(`أرسل مرتجع ${fmtNum(amt)} من "${item.name}" (${TITLES[tabId][0]}) لـ ${TITLES[prevTabId][0]} — في انتظار الاستلام`);
       await persist();
       renderTableRows(tabId);
       renderNav();
-      showToast(`تم إرجاع ${fmtNum(amt)} من "${item.name}" تلقائي لـ ${TITLES[prevTabId][0]}`);
+      showToast(`تم إرسال ${fmtNum(amt)} من "${item.name}" لـ ${TITLES[prevTabId][0]} — مستني تأكيد الاستلام`);
       return;
     }
 
@@ -2669,15 +2699,15 @@ function openReportOrderModal(tabId){
   });
 }
 
-function openConfirmModal(message, onConfirm){
+function openConfirmModal(message, onConfirm, confirmLabel){
   document.getElementById('modalRoot').innerHTML = `
     <div class="modal-overlay" id="overlay">
       <div class="modal" style="max-width:380px;">
-        <div class="modal-head"><h3>تأكيد الحذف</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-head"><h3>${confirmLabel?'تأكيد':'تأكيد الحذف'}</h3><button class="modal-close" id="closeX">✕</button></div>
         <div class="modal-body"><div>${message}</div></div>
         <div class="modal-foot">
           <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
-          <button class="btn btn-danger" id="confirmBtn">حذف نهائيًا</button>
+          <button class="btn btn-danger" id="confirmBtn">${confirmLabel||'حذف نهائيًا'}</button>
         </div>
       </div>
     </div>`;
@@ -2908,9 +2938,21 @@ const TABID_TO_WHID = { raw:'raw', whManufacturing:'manufacturing', whPackaging:
 const WH_PREV_TABID = { whManufacturing:'raw', whPackaging:'whManufacturing', whFinished:'whPackaging' };
 
 // بيسجل تحويل تلقائي بيرجع كمية "qty" من صنف tabId/item لنفس الصنف (بالاسم) في المخزن اللي قبله في السلسلة
-function cascadeReturnToPrev(tabId, item, qty, note){
+function cascadeReturnToPrev(tabId, item, qty, note, needsReceipt){
   const prevTabId = WH_PREV_TABID[tabId];
   if(!prevTabId || !(qty>0)) return;
+  if(needsReceipt){
+    // مرتجع للمخزن اللي قبله — مستني أمين المخزن ده يأكد الاستلام
+    const tid = uid();
+    item.history = item.history || [];
+    item.history.push({date:todayISO(), ts:new Date().toISOString(), type:'صرف', qty, notes:`مرتجع لـ ${TITLES[prevTabId][0]} (في انتظار الاستلام)`, refId:tid, by:userTag()});
+    DB.transfers.unshift({
+      id:tid, date:todayISO(), fromWarehouse:TABID_TO_WHID[tabId], toWarehouse:TABID_TO_WHID[prevTabId], notes: note || 'مرتجع',
+      status:'pending', sentBy:userTag(), sentAt:new Date().toISOString(),
+      lines:[{fromItemId:item.id, fromItemName:item.name, fromQty:qty}]
+    });
+    return;
+  }
   const date = todayISO();
   const transferId = uid();
   item.history = item.history || [];
@@ -3445,33 +3487,80 @@ function openPurchaseModal(kind){
   });
 }
 
+/* ================= التحويلات المخزنية: إرسال + تأكيد استلام ================= */
+// المرسل بيبعت الكمية ← بتتخصم من مخزنه وتبقى "في الطريق"
+// المستلم بيأكد الكمية اللي وصلت فعلاً ← ساعتها بس بتتضاف لمخزنه (ولو فيه فرق بيتسجل عجز)
+const ROLE_WH = { warehouse:'raw', whman:'manufacturing', whpack:'packaging', whfin:'finished' };
+function myWarehouse(){ return currentUser ? (ROLE_WH[currentUser.role]||null) : null; }
+function isAllWhUser(){ return currentUser && (currentUser.role==='admin' || currentUser.role==='operation'); }
+function trStatus(t){ return t.status || 'received'; } // التحويلات القديمة كانت بتتنفذ فورًا
+function trLines(t){ return (t.lines && t.lines.length) ? t.lines : [{fromItemId:t.fromItemId, fromItemName:t.fromItemName, fromQty:t.fromQty, toItemId:t.toItemId, toItemName:t.toItemName, toQty:t.toQty}]; }
+function canReceive(t){ return trStatus(t)==='pending' && (isAllWhUser() || myWarehouse()===t.toWarehouse); }
+function canCancelSend(t){ return trStatus(t)==='pending' && (isAllWhUser() || myWarehouse()===t.fromWarehouse); }
+function visibleTransfers(){
+  if(isAllWhUser()) return DB.transfers;
+  const w = myWarehouse();
+  return DB.transfers.filter(t=>t.fromWarehouse===w || t.toWarehouse===w);
+}
+function pendingIncomingCount(){
+  return DB.transfers.filter(t=>canReceive(t)).length;
+}
+const TR_STATUS = {
+  pending:{label:'في الطريق — مستني الاستلام', cls:'pill-warn'},
+  received:{label:'تم الاستلام ✓', cls:'pill-ok'},
+  rejected:{label:'مرفوض — رجع للمرسل', cls:'pill-danger'},
+};
+
 function renderTransfersTab(){
-  const list = [...DB.transfers].sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  const list = [...visibleTransfers()].sort((a,b)=>{
+    const pa = trStatus(a)==='pending'?0:1, pb = trStatus(b)==='pending'?0:1;
+    if(pa!==pb) return pa-pb;
+    return (b.sentAt||b.date||'').localeCompare(a.sentAt||a.date||'');
+  });
+  const incoming = pendingIncomingCount();
+  const canSend = isAllWhUser() || (myWarehouse() && myWarehouse()!=='finished');
   let html = `
+  ${incoming? `<div class="panel" style="padding:14px 18px;border-color:var(--warn);background:var(--warn-bg);margin-bottom:14px;display:flex;align-items:center;gap:10px;">
+    ${svgIcon('alert')}<div><strong>فيه ${incoming} تحويل مستني تأكيد استلامك.</strong> راجع الكمية اللي وصلت فعلاً واضغط "تأكيد الاستلام".</div></div>` : ''}
   <div class="panel">
     <div class="panel-head">
       <h2>التحويلات المخزنية <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
-      <div class="toolbar"><button class="btn btn-gold" id="addTransferBtn">+ تحويل جديد</button></div>
+      <div class="toolbar">${canSend? `<button class="btn btn-gold" id="addTransferBtn">+ إرسال تحويل</button>`:''}</div>
     </div>
     <div class="panel-body">
       ${list.length? `
       <div class="table-wrap"><table>
-        <thead><tr><th>التاريخ</th><th>من مخزن</th><th>إلى مخزن</th><th>الصنف</th><th>الكمية</th><th>ملاحظات</th><th></th></tr></thead>
+        <thead><tr><th>تاريخ الإرسال</th><th>من</th><th>إلى</th><th>الصنف</th><th>المرسل</th><th>المستلم فعلاً</th><th>الحالة</th><th>أرسله / استلمه</th><th></th></tr></thead>
         <tbody>
         ${list.map(t=>{
-          // backward-compat: بعض السجلات القديمة كانت بصيغة "lines" فيها أكتر من صنف — نعرضهم مجمّعين في نفس الصف
-          const lines = (t.lines && t.lines.length) ? t.lines : [{fromItemName:t.fromItemName, fromQty:t.fromQty, toItemName:t.toItemName, toQty:t.toQty}];
-          const itemLabel = lines.map(ln=> ln.fromItemName===ln.toItemName ? esc(ln.fromItemName) : `${esc(ln.fromItemName)} ← ${esc(ln.toItemName)}`).join('<br>');
-          const qtyLabel = lines.map(ln=> fmtNum(ln.fromQty)).join('<br>');
+          const st = TR_STATUS[trStatus(t)];
+          const lines = trLines(t);
+          const itemLabel = lines.map(ln=> ln.fromItemName===ln.toItemName||!ln.toItemName ? esc(ln.fromItemName) : `${esc(ln.fromItemName)} ← ${esc(ln.toItemName)}`).join('<br>');
+          const sentQty = lines.map(ln=> fmtNum(ln.fromQty)).join('<br>');
+          const recQty = trStatus(t)==='received' ? lines.map(ln=>{
+            const r = Number(ln.toQty), s2 = Number(ln.fromQty);
+            const diff = Math.round((r - s2)*100)/100;
+            return `${fmtNum(r)}${diff? ` <span style="color:var(--danger);font-size:11px;">(${diff<0?'عجز':'زيادة'} ${fmtNum(Math.abs(diff))})</span>`:''}`;
+          }).join('<br>') : '—';
+          const actions = [];
+          if(canReceive(t)){
+            actions.push(`<button class="btn btn-sm btn-primary" data-act="receive" data-id="${t.id}">تأكيد الاستلام</button>`);
+            actions.push(`<button class="btn btn-sm btn-ghost" data-act="reject" data-id="${t.id}">رفض</button>`);
+          } else if(canCancelSend(t)){
+            actions.push(`<button class="btn btn-sm btn-ghost" data-act="cancel" data-id="${t.id}">إلغاء الإرسال</button>`);
+          }
+          if(isAdmin) actions.push(`<button class="icon-btn danger" data-act="delete" data-id="${t.id}" title="حذف">${svgIcon('trash','sm')}</button>`);
           return `
           <tr data-id="${t.id}">
-            <td>${fmtDateAr(t.date)}</td>
+            <td>${t.sentAt? fmtDateTimeAr(t.sentAt) : fmtDateAr(t.date)}</td>
             <td><span class="pill pill-navy">${esc(whLabel(t.fromWarehouse))}</span></td>
             <td><span class="pill pill-navy">${esc(whLabel(t.toWarehouse))}</span></td>
-            <td style="font-weight:700">${itemLabel}</td>
-            <td class="num">${qtyLabel}</td>
-            <td class="muted">${t.notes?esc(t.notes):'—'}</td>
-            <td><button class="icon-btn danger" data-act="delete" data-id="${t.id}" title="حذف">${svgIcon('trash','sm')}</button></td>
+            <td style="font-weight:700">${itemLabel}${t.notes?`<div class="muted" style="font-size:11.5px;font-weight:500;">${esc(t.notes)}</div>`:''}</td>
+            <td class="num">${sentQty}</td>
+            <td class="num">${recQty}</td>
+            <td><span class="pill ${st.cls}">${st.label}</span>${t.receiveNotes?`<div class="muted" style="font-size:11px;margin-top:3px;">${esc(t.receiveNotes)}</div>`:''}</td>
+            <td style="font-size:12px;">${t.sentBy?`أرسل: ${esc(t.sentBy)}`:'—'}${t.receivedBy?`<br>${trStatus(t)==='rejected'?'رفض':'استلم'}: ${esc(t.receivedBy)}${t.receivedAt?` <span class="muted">(${fmtDateTimeAr(t.receivedAt)})</span>`:''}`:''}</td>
+            <td><div class="btn-icon-row">${actions.join('')}</div></td>
           </tr>`;
         }).join('')}
         </tbody>
@@ -3479,64 +3568,152 @@ function renderTransfersTab(){
     </div>
   </div>`;
   document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
-  document.getElementById('addTransferBtn').addEventListener('click', ()=>openTransferModal());
+  const addBtn = document.getElementById('addTransferBtn');
+  if(addBtn) addBtn.addEventListener('click', ()=>openTransferModal());
+  document.querySelectorAll('[data-act="receive"]').forEach(b=>b.addEventListener('click', ()=>openReceiveModal(b.dataset.id)));
+  document.querySelectorAll('[data-act="reject"]').forEach(b=>b.addEventListener('click', ()=>{
+    openConfirmModal('هل تريد رفض التحويل ده؟ الكمية هترجع لمخزن المرسل.', ()=>returnTransferToSender(b.dataset.id,'rejected'), 'رفض التحويل');
+  }));
+  document.querySelectorAll('[data-act="cancel"]').forEach(b=>b.addEventListener('click', ()=>{
+    openConfirmModal('هل تريد إلغاء التحويل ده؟ الكمية هترجع لمخزنك.', ()=>returnTransferToSender(b.dataset.id,'cancelled'), 'إلغاء الإرسال');
+  }));
   document.querySelectorAll('[data-act="delete"]').forEach(b=>b.addEventListener('click', ()=>{
     openConfirmModal('هل تريد حذف سجل هذا التحويل؟ هترجع الأرصدة تلقائي زي ما كانت قبل التحويل.', async ()=>{
       const t = DB.transfers.find(x=>x.id===b.dataset.id);
       if(t){
-        const lines = (t.lines && t.lines.length) ? t.lines : [{fromItemId:t.fromItemId, fromItemName:t.fromItemName, fromQty:t.fromQty, toItemId:t.toItemId, toItemName:t.toItemName, toQty:t.toQty}];
-        const fromArr = whArray(t.fromWarehouse);
-        const toArr = whArray(t.toWarehouse);
-        lines.forEach(ln=>{
-          const fromItem = fromArr.find(i=>i.id===ln.fromItemId) || fromArr.find(i=>i.name.trim()===ln.fromItemName);
-          if(fromItem){
-            fromItem.balance = Math.round((fromItem.balance + Number(ln.fromQty||0))*100)/100;
-            fromItem.history = (fromItem.history||[]).filter(h=>h.refId!==t.id);
+        const st = trStatus(t);
+        const fromArr = whArray(t.fromWarehouse), toArr = whArray(t.toWarehouse);
+        trLines(t).forEach(ln=>{
+          if(st!=='rejected'){ // المرفوض كان رجع للمرسل أصلاً
+            const fromItem = fromArr.find(i=>i.id===ln.fromItemId) || fromArr.find(i=>i.name.trim()===ln.fromItemName);
+            if(fromItem){ fromItem.balance = Math.round((fromItem.balance + Number(ln.fromQty||0))*100)/100; }
           }
-          const toItem = toArr.find(i=>i.id===ln.toItemId) || toArr.find(i=>i.name.trim()===ln.toItemName);
-          if(toItem){
-            toItem.balance = Math.round((toItem.balance - Number(ln.toQty||0))*100)/100;
-            toItem.history = (toItem.history||[]).filter(h=>h.refId!==t.id);
+          if(st==='received'){
+            const toItem = toArr.find(i=>i.id===ln.toItemId) || toArr.find(i=>i.name.trim()===ln.toItemName);
+            if(toItem){ toItem.balance = Math.round((toItem.balance - Number(ln.toQty||0))*100)/100; }
           }
+          [...fromArr, ...toArr].forEach(it=>{ if(it.history) it.history = it.history.filter(h=>h.refId!==t.id); });
         });
       }
       DB.transfers = DB.transfers.filter(x=>x.id!==b.dataset.id);
       logAction(`حذف سجل تحويل${t?` من ${whLabel(t.fromWarehouse)} إلى ${whLabel(t.toWarehouse)}`:''}`);
       await persist();
-      renderTransfersTab();
-      renderNav();
+      renderTransfersTab(); renderNav();
       showToast('تم حذف السجل وترجيع الأرصدة');
     });
   }));
 }
 
-function openTransferModal(prefill){
-  prefill = prefill || {};
+function openReceiveModal(id){
+  const t = DB.transfers.find(x=>x.id===id);
+  if(!t || !canReceive(t)) return;
+  const lines = trLines(t);
   document.getElementById('modalRoot').innerHTML = `
     <div class="modal-overlay" id="overlay">
       <div class="modal">
-        <div class="modal-head"><h3>تحويل مخزني</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-head"><h3>تأكيد استلام تحويل</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-body">
+          <div class="muted" style="font-size:12.5px;">من <b>${esc(whLabel(t.fromWarehouse))}</b> إلى <b>${esc(whLabel(t.toWarehouse))}</b> — أرسله ${esc(t.sentBy||'—')}</div>
+          ${lines.map((ln,i)=>`
+            <div class="field"><label>${esc(ln.fromItemName)} — المرسل ${fmtNum(ln.fromQty)}. الكمية اللي وصلت فعلاً *</label>
+              <input type="number" step="0.01" data-rec="${i}" value="${ln.fromQty}">
+            </div>`).join('')}
+          <div class="field"><label>ملاحظات الاستلام (اختياري)</label><input type="text" id="f_recNotes" placeholder="مثال: شكارة مقطوعة"></div>
+          <div class="muted" style="font-size:12px;">لو الكمية اللي وصلت أقل من المرسل، الفرق هيتسجل عجز ويظهر للأدمن.</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
+          <button class="btn btn-primary" id="saveBtn">تأكيد الاستلام</button>
+        </div>
+      </div>
+    </div>`;
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const qtys = lines.map((_,i)=> Number(document.querySelector(`[data-rec="${i}"]`).value));
+    if(qtys.some(q=>Number.isNaN(q) || q<0)){ showToast('اكتب كمية صحيحة'); return; }
+    const t2 = DB.transfers.find(x=>x.id===id);
+    if(!t2 || trStatus(t2)!=='pending'){ closeModal(); showToast('التحويل ده اتعامل معاه بالفعل'); renderTransfersTab(); return; }
+    const recNotes = document.getElementById('f_recNotes').value.trim();
+    const toArr = whArray(t2.toWarehouse);
+    const date = todayISO();
+    const newLines = trLines(t2).map((ln,i)=>{
+      const q = qtys[i];
+      let toItem = toArr.find(it=>it.name.trim()===ln.fromItemName.trim());
+      if(!toItem){ toItem = {id:uid(), name:ln.fromItemName, balance:0, history:[]}; if(t2.toWarehouse==='raw'){ Object.assign(toItem,{category:'',supplier:'',variant:'',barcode:'',notes:'',productionDate:'',expiryDate:''}); } toArr.unshift(toItem); }
+      toItem.balance = Math.round((toItem.balance + q)*100)/100;
+      toItem.history = toItem.history || [];
+      const diff = Math.round((q - Number(ln.fromQty))*100)/100;
+      toItem.history.push({date, ts:new Date().toISOString(), type:'اضافه', qty:q, notes:`استلام تحويل من ${whLabel(t2.fromWarehouse)}${diff?` (${diff<0?'عجز':'زيادة'} ${fmtNum(Math.abs(diff))})`:''}${recNotes?' — '+recNotes:''}`, refId:t2.id, by:userTag()});
+      return {...ln, toItemId:toItem.id, toItemName:toItem.name, toQty:q};
+    });
+    t2.lines = newLines;
+    t2.status = 'received';
+    t2.receivedBy = userTag();
+    t2.receivedAt = new Date().toISOString();
+    t2.receiveNotes = recNotes;
+    const shortage = newLines.some(ln=>Number(ln.toQty)!==Number(ln.fromQty));
+    logAction(`أكد استلام تحويل من ${whLabel(t2.fromWarehouse)} إلى ${whLabel(t2.toWarehouse)}${shortage?' — بفرق في الكمية':''}`);
+    await persist();
+    closeModal(); renderTransfersTab(); renderNav();
+    showToast(shortage ? 'تم الاستلام — واتسجل فرق في الكمية' : 'تم تأكيد الاستلام وإضافة الكمية لمخزنك');
+  });
+}
+
+async function returnTransferToSender(id, status){
+  const t = DB.transfers.find(x=>x.id===id);
+  if(!t || trStatus(t)!=='pending'){ showToast('التحويل ده اتعامل معاه بالفعل'); renderTransfersTab(); return; }
+  const fromArr = whArray(t.fromWarehouse);
+  trLines(t).forEach(ln=>{
+    const it = fromArr.find(i=>i.id===ln.fromItemId) || fromArr.find(i=>i.name.trim()===ln.fromItemName);
+    if(it){
+      it.balance = Math.round((it.balance + Number(ln.fromQty||0))*100)/100;
+      it.history = it.history || [];
+      it.history.push({date:todayISO(), ts:new Date().toISOString(), type:'اضافه', qty:Number(ln.fromQty||0), notes: status==='rejected' ? `تحويل مرفوض من ${whLabel(t.toWarehouse)} — رجع` : 'إلغاء تحويل — رجع', refId:t.id, by:userTag()});
+    }
+  });
+  if(status==='cancelled'){
+    DB.transfers = DB.transfers.filter(x=>x.id!==id);
+    logAction(`ألغى تحويل من ${whLabel(t.fromWarehouse)} إلى ${whLabel(t.toWarehouse)}`);
+  } else {
+    t.status = 'rejected';
+    t.receivedBy = userTag();
+    t.receivedAt = new Date().toISOString();
+    logAction(`رفض تحويل من ${whLabel(t.fromWarehouse)} إلى ${whLabel(t.toWarehouse)}`);
+  }
+  await persist();
+  renderTransfersTab(); renderNav();
+  showToast(status==='rejected' ? 'تم رفض التحويل ورجعت الكمية للمرسل' : 'تم إلغاء التحويل ورجعت الكمية لمخزنك');
+}
+
+function openTransferModal(prefill){
+  prefill = prefill || {};
+  const mine = myWarehouse();
+  const fromChoices = isAllWhUser() ? WH_DEFS.filter(w=>w.id!=='finished') : WH_DEFS.filter(w=>w.id===mine);
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay">
+      <div class="modal">
+        <div class="modal-head"><h3>إرسال تحويل مخزني</h3><button class="modal-close" id="closeX">✕</button></div>
         <div class="modal-body">
           <div class="field"><label>من مخزن *</label>
-            <select id="f_fromWh">
-              <option value="">— اختر —</option>
-              ${WH_DEFS.filter(w=>w.id!=='finished').map(w=>`<option value="${w.id}" ${prefill.fromWh===w.id?'selected':''}>${esc(w.label)}</option>`).join('')}
+            <select id="f_fromWh" ${fromChoices.length===1?'disabled':''}>
+              ${fromChoices.length>1?'<option value="">— اختر —</option>':''}
+              ${fromChoices.map(w=>`<option value="${w.id}" ${(prefill.fromWh===w.id||fromChoices.length===1)?'selected':''}>${esc(w.label)}</option>`).join('')}
             </select>
           </div>
           <div class="field"><label>الصنف *</label><select id="f_fromItem"><option value="">اختر المخزن أولاً</option></select></div>
           <div class="field"><label>الكمية *</label><input type="number" step="0.01" id="f_qty" placeholder="0"></div>
           <div class="field"><label>إلى مخزن *</label>
-            <select id="f_toWh">
-              <option value="">— اختر —</option>
-              ${WH_DEFS.filter(w=>w.id!=='raw').map(w=>`<option value="${w.id}" ${prefill.toWh===w.id?'selected':''}>${esc(w.label)}</option>`).join('')}
-            </select>
+            <select id="f_toWh"><option value="">— اختر —</option></select>
           </div>
-          <div class="field"><label>التاريخ</label><input type="date" id="f_date" value="${todayISO()}"></div>
-          <div class="field"><label>ملاحظات (اختياري)</label><input type="text" id="f_notes" placeholder="مثال: هالك راجع من التعبئة للتصنيع"></div>
+          <div class="field"><label>ملاحظات (اختياري)</label><input type="text" id="f_notes" placeholder="مثال: خامات تشغيلة بكرة"></div>
+          <div class="muted" style="font-size:12px;">الكمية هتتخصم من مخزنك دلوقتي وتبقى "في الطريق"، ومش هتدخل المخزن التاني غير لما أمينه يأكد الاستلام.</div>
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
-          <button class="btn btn-primary" id="saveBtn">حفظ</button>
+          <button class="btn btn-primary" id="saveBtn">إرسال</button>
         </div>
       </div>
     </div>`;
@@ -3547,57 +3724,46 @@ function openTransferModal(prefill){
 
   const fromWhSel = document.getElementById('f_fromWh');
   const fromItemSel = document.getElementById('f_fromItem');
-  function refillFromItems(){
+  const toWhSel = document.getElementById('f_toWh');
+  function refill(){
     const arr = whArray(fromWhSel.value);
     fromItemSel.innerHTML = `<option value="">${fromWhSel.value? '— اختر الصنف —' : 'اختر المخزن أولاً'}</option>` +
       arr.map(it=>`<option value="${it.id}">${esc(it.name)} (رصيد: ${fmtNum(it.balance)})</option>`).join('');
+    toWhSel.innerHTML = '<option value="">— اختر —</option>' + WH_DEFS.filter(w=>w.id!=='raw' && w.id!==fromWhSel.value)
+      .map(w=>`<option value="${w.id}" ${prefill.toWh===w.id?'selected':''}>${esc(w.label)}</option>`).join('');
   }
-  fromWhSel.addEventListener('change', refillFromItems);
-  refillFromItems();
+  fromWhSel.addEventListener('change', refill);
+  refill();
   if(prefill.fromItemId) fromItemSel.value = prefill.fromItemId;
 
   document.getElementById('saveBtn').addEventListener('click', async ()=>{
-    const date = document.getElementById('f_date').value || todayISO();
+    const date = todayISO();
     const fromWh = fromWhSel.value;
     const fromItemId = fromItemSel.value;
     const qty = Number(document.getElementById('f_qty').value);
-    const toWh = document.getElementById('f_toWh').value;
+    const toWh = toWhSel.value;
     const notes = document.getElementById('f_notes').value.trim();
-
-    if(!fromWh || !fromItemId){ showToast('اختر مخزن المصدر والصنف'); return; }
+    if(!fromWh || !fromItemId){ showToast('اختر الصنف'); return; }
     if(!qty || qty<=0){ showToast('اكتب كمية صحيحة'); return; }
-    if(!toWh){ showToast('اختر مخزن الوجهة'); return; }
-
-    const fromArr = whArray(fromWh);
-    const fromItem = fromArr.find(i=>i.id===fromItemId);
+    if(!toWh){ showToast('اختر المخزن اللي هتبعتله'); return; }
+    if(!isAllWhUser() && fromWh!==mine){ showToast('تقدر تحوّل من مخزنك بس'); return; }
+    const fromItem = whArray(fromWh).find(i=>i.id===fromItemId);
     if(!fromItem){ showToast('الصنف غير موجود'); return; }
+    if(qty > Number(fromItem.balance)){ showToast(`الكمية أكبر من الرصيد (${fmtNum(fromItem.balance)})`); return; }
     const transferId = uid();
     fromItem.balance = Math.round((fromItem.balance - qty)*100)/100;
     fromItem.history = fromItem.history || [];
-    fromItem.history.push({date, type:'صرف', qty, notes:`تحويل إلى ${whLabel(toWh)}${notes?' — '+notes:''}`, refId: transferId, by: userTag()});
-
-    // نفس اسم الصنف بيتنقل تلقائي للمخزن التاني (نفس المنطق: بدل الورق، مفيش داعي تكتب الاسم تاني)
-    const toArr = whArray(toWh);
-    let toItem = toArr.find(i=>i.name.trim()===fromItem.name.trim());
-    if(!toItem){
-      toItem = {id:uid(), name:fromItem.name, balance:0, history:[]};
-      toArr.unshift(toItem);
-    }
-    toItem.balance = Math.round((toItem.balance + qty)*100)/100;
-    toItem.history = toItem.history || [];
-    toItem.history.push({date, type:'اضافه', qty, notes:`تحويل من ${whLabel(fromWh)}${notes?' — '+notes:''}`, refId: transferId, by: userTag()});
-
+    fromItem.history.push({date, ts:new Date().toISOString(), type:'صرف', qty, notes:`تحويل إلى ${whLabel(toWh)} (في انتظار الاستلام)${notes?' — '+notes:''}`, refId: transferId, by: userTag()});
     DB.transfers.unshift({
       id:transferId, date, fromWarehouse:fromWh, toWarehouse:toWh, notes,
-      lines:[{fromItemId:fromItem.id, fromItemName:fromItem.name, fromQty:qty, toItemId:toItem.id, toItemName:toItem.name, toQty:qty}]
+      status:'pending', sentBy:userTag(), sentAt:new Date().toISOString(),
+      lines:[{fromItemId:fromItem.id, fromItemName:fromItem.name, fromQty:qty}]
     });
-    logAction(`حوّل ${fmtNum(qty)} من "${fromItem.name}" — ${whLabel(fromWh)} إلى ${whLabel(toWh)}`);
-
+    logAction(`أرسل ${fmtNum(qty)} من "${fromItem.name}" — ${whLabel(fromWh)} إلى ${whLabel(toWh)} (في انتظار الاستلام)`);
     await persist();
     closeModal();
-    renderTransfersTab();
-    renderNav();
-    showToast('تم تسجيل التحويل وتحديث الأرصدة');
+    renderTransfersTab(); renderNav();
+    showToast('تم الإرسال — مستني تأكيد الاستلام من المخزن التاني');
   });
 }
 
@@ -3750,7 +3916,7 @@ function renderAdminArea(){
   document.getElementById('userLogoutBtn').addEventListener('click', logoutUser);
 }
 
-const ROLE_LABELS = {admin:'أدمن', warehouse:'أمين مخزن', cairo:'سيلز القاهرة', operation:'أوبريشن'};
+const ROLE_LABELS = {admin:'أدمن', warehouse:'أمين مخزن الخامات', whman:'أمين مخزن التصنيع', whpack:'أمين مخزن التعبئة والتغليف', whfin:'أمين مخزن الإنتاج التام', cairo:'سيلز القاهرة', operation:'أوبريشن'};
 
 function openAdminSettingsModal(){
   renderAdminSettingsModalContent();
@@ -3838,7 +4004,10 @@ function openUserEditModal(userId){
           <div class="field"><label>الصلاحية *</label>
             <select id="f_userrole">
               <option value="admin" ${u&&u.role==='admin'?'selected':''}>أدمن (كل الصلاحيات)</option>
-              <option value="warehouse" ${u&&u.role==='warehouse'?'selected':''}>أمين مخزن (المشتريات والمخازن + طلبات القاهرة)</option>
+              <option value="warehouse" ${u&&u.role==='warehouse'?'selected':''}>أمين مخزن الخامات (مخزن الخامات + طلبات المشتريات + تقارير التعبئة والإنتاج)</option>
+              <option value="whman" ${u&&u.role==='whman'?'selected':''}>أمين مخزن التصنيع (مخزن التصنيع + التقارير)</option>
+              <option value="whpack" ${u&&u.role==='whpack'?'selected':''}>أمين مخزن التعبئة والتغليف (مخزنه + التقارير)</option>
+              <option value="whfin" ${u&&u.role==='whfin'?'selected':''}>أمين مخزن الإنتاج التام (مخزنه + التقارير)</option>
               <option value="operation" ${u&&u.role==='operation'?'selected':''}>أوبريشن (المخازن + طلبات القاهرة، بدون مشتريات)</option>
               <option value="cairo" ${u&&u.role==='cairo'?'selected':''}>سيلز القاهرة (طلبات القاهرة بس)</option>
             </select>
