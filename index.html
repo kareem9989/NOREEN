@@ -677,9 +677,9 @@ const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
 const WAREHOUSE_TABS = ['raw','whManufacturing','purchaseRequests','transfers','whReport']; // أمين مخزن الخامات
 const ROLE_TABS = { // كل مخزن ليه أمين لوحده
-  whman:  ['whManufacturing','raw','transfers','purchaseRequests','whReport'],
-  whpack: ['whPackaging','raw','transfers','purchaseRequests','whReport'],
-  whfin:  ['whFinished','transfers','whReport'],
+  whman:  ['whManufacturing','raw','transfers','purchaseRequests','whReport','waste'],
+  whpack: ['whPackaging','raw','transfers','purchaseRequests','whReport','waste'],
+  whfin:  ['whFinished','transfers','whReport','waste'],
 };
 // تابات بيشوفها الدور من غير ما يعدّل فيها (لا إضافة ولا صرف ولا تعديل ولا حذف)
 const ROLE_READONLY = { whman:['raw'], whpack:['raw'] };
@@ -691,7 +691,7 @@ function isReadOnlyTab(tabId){ return !!(currentUser && ROLE_READONLY[currentUse
 function allowedRawCats(){ return currentUser ? (ROLE_RAW_CATS[currentUser.role]||null) : null; }
 function rawCatAllowed(item){ const c = allowedRawCats(); return !c || c.includes((item.category||'').trim()); }
 const CAIRO_TABS = ['cairoRequests','fillingReports','productionReports'];
-const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','transfers','whReport','cairoRequests','fillingReports','productionReports'];
+const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','transfers','whReport','waste','cairoRequests','fillingReports','productionReports'];
 function isTabAllowed(tabId){
   if(!currentUser) return false;
   if(currentUser.role==='admin') return true;
@@ -1632,20 +1632,23 @@ const CONFIGS = {
     title:'تقرير الهالك', addLabel:'تسجيل هالك جديد',
     fields:[
       {key:'date', label:'التاريخ', type:'date', required:true},
-      {key:'item', label:'الصنف', type:'text', required:true},
+      {key:'warehouse', label:'المخزن', type:'select', dynamicOptions:'wasteWh', placeholder:'— اختر المخزن —', required:true},
+      {key:'item', label:'الصنف (من المخزن ده — هيتخصم من رصيده)', type:'text', required:true, itemsFromWh:true},
       {key:'wasteType', label:'نوع الهالك', type:'text', required:false},
       {key:'qty', label:'الكمية', type:'number', required:true, step:'0.01'},
       {key:'reason', label:'السبب', type:'text', required:false},
     ],
     columns:[
       {key:'date', label:'التاريخ'},
+      {key:'warehouse', label:'المخزن'},
       {key:'item', label:'الصنف'},
       {key:'wasteType', label:'نوع الهالك'},
       {key:'qty', label:'الكمية'},
       {key:'reason', label:'السبب'},
     ],
-    searchKeys:['item','wasteType','reason'],
-    filterKey:null,
+    searchKeys:['item','wasteType','reason','warehouse'],
+    filterKey:'warehouse',
+    filterAllLabel:'كل المخازن',
     dateKey:'date',
   },
   breakdowns:{
@@ -2100,6 +2103,7 @@ function getFilteredList(tabId){
   const cfg = CONFIGS[tabId];
   let list = [...DB[tabId]];
   if(tabId==='raw') list = list.filter(rawCatAllowed);
+  if(tabId==='waste' && !isAllWhUser()){ const ls=wasteWhLabels(); list = list.filter(w=>ls.includes(w.warehouse)); }
   if(tabId==='raw' && rawSubTab!=='all'){
     list = list.filter(item=> (item.category||'').trim()===rawSubTab);
   }
@@ -2447,6 +2451,7 @@ function confirmDelete(tabId, id){
       item.balance = 0;
       cascadeReturnToPrev(tabId, item, qty, `إرجاع رصيد متبقي قبل حذف الصنف من ${TITLES[tabId][0]}`);
     }
+    if(tabId==='waste') wasteReverse(item);
     DB[tabId] = DB[tabId].filter(i=>i.id!==id);
     logAction(`حذف "${name}" من ${TITLES[tabId][0]}`);
     await persist();
@@ -2527,8 +2532,12 @@ function openItemModal(tabId, item, presetVals){
         // السجلات القديمة (زي "السعوديه") ممكن أوردرها مش موجود في أوردرات العملاء — نحافظ عليه
         if(v && !opts.includes(v)) opts = [v, ...opts];
       }
+      if(f.dynamicOptions==='wasteWh'){
+        opts = wasteWhLabels();
+        if(opts.length===1 && !v) setTimeout(()=>{ const el=document.getElementById(id); if(el){ el.value=opts[0]; el.dispatchEvent(new Event('change')); } },0);
+      }
       inputHtml = `<select id="${id}">
-        <option value="">— اختر الاوردر —</option>
+        <option value="">${f.placeholder||'— اختر الاوردر —'}</option>
         ${opts.map(o=>`<option value="${esc(o)}" ${v===o?'selected':''}>${esc(o)}</option>`).join('')}
       </select>`;
     } else if(f.type==='datalist'){
@@ -2541,6 +2550,8 @@ function openItemModal(tabId, item, presetVals){
       inputHtml = `<input type="date" id="${id}" value="${esc(v)}">`;
     } else if(f.type==='time'){
       inputHtml = `<input type="time" id="${id}" value="${esc(v)}">`;
+    } else if(f.itemsFromWh){
+      inputHtml = `<input type="text" id="${id}" value="${esc(v)}" list="wasteItemsList" placeholder="اكتب أو اختار الصنف"><datalist id="wasteItemsList"></datalist><div class="muted" id="wasteBal" style="font-size:11.5px;margin-top:4px;"></div>`;
     } else {
       inputHtml = `<input type="text" id="${id}" value="${esc(v)}">`;
     }
@@ -2569,6 +2580,16 @@ function openItemModal(tabId, item, presetVals){
   overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
   document.getElementById('closeX').addEventListener('click', closeModal);
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  if(tabId==='waste'){
+    const whSel=document.getElementById('f_warehouse'), itIn=document.getElementById('f_item');
+    const upd=()=>{
+      const arr=whArray(wasteWhId(whSel.value));
+      document.getElementById('wasteItemsList').innerHTML=arr.map(i=>`<option value="${esc(i.name)}">رصيد: ${fmtNum(i.balance)}</option>`).join('');
+      const it=arr.find(i=>i.name.trim()===itIn.value.trim());
+      document.getElementById('wasteBal').textContent = itIn.value.trim()? (it?`الرصيد الحالي: ${fmtNum(it.balance)}`:'الصنف ده مش موجود في المخزن — الهالك هيتسجل من غير خصم') : '';
+    };
+    whSel.addEventListener('change',upd); itIn.addEventListener('input',upd); upd();
+  }
   document.getElementById('saveBtn').addEventListener('click', async ()=>{
     const newData = {};
     let missingRequired = false;
@@ -2583,7 +2604,9 @@ function openItemModal(tabId, item, presetVals){
 
     if(isEdit){
       const oldBal = Number(item.balance);
+      if(tabId==='waste') wasteReverse(item);
       Object.assign(item, newData);
+      if(tabId==='waste') wasteApply(item);
       if(Array.isArray(item.history) && newData.balance!==undefined && newData.balance!==null && !Number.isNaN(oldBal)){
         const diff = Math.round((Number(newData.balance) - oldBal)*100)/100;
         if(diff){
@@ -2593,6 +2616,7 @@ function openItemModal(tabId, item, presetVals){
       logAction(`عدّل "${newData.name||newData.description||'عنصر'}" في ${TITLES[tabId][0]}`);
     } else {
       const rec = {id: uid(), ...newData};
+      if(tabId==='waste') wasteApply(rec);
       if(tabId==='raw' || tabId==='rolls' || tabId==='whManufacturing' || tabId==='whPackaging' || tabId==='whFinished' || tabId==='suppliers') rec.history = [];
       DB[tabId].unshift(rec);
       logAction(`أضاف "${newData.name||newData.description||'عنصر جديد'}" في ${TITLES[tabId][0]}`);
@@ -3917,6 +3941,33 @@ function openTransferModal(prefill, editId){
   document.getElementById('saveBtn').addEventListener('click', ()=>save(false));
 }
 
+/* ================= الهالك مربوط بالمخازن ================= */
+const WASTE_WHS=['manufacturing','packaging','finished'];
+function wasteWhLabels(){
+  const ids = isAllWhUser()? WASTE_WHS : WASTE_WHS.filter(w=>w===myWarehouse());
+  return ids.map(whLabel);
+}
+function wasteWhId(label){ const w=WH_DEFS.find(x=>x.label===label); return w?w.id:null; }
+function wasteApply(rec){
+  const whId=wasteWhId(rec.warehouse); if(!whId) return;
+  const it=whArray(whId).find(i=>i.name.trim()===(rec.item||'').trim());
+  const q=Number(rec.qty)||0;
+  if(!it||!q){ rec.deducted=false; return; }
+  it.balance=Math.round((it.balance-q)*100)/100;
+  it.history=it.history||[];
+  it.history.push({date:rec.date||todayISO(), ts:new Date().toISOString(), type:'صرف', qty:q, notes:`هالك${rec.wasteType?' ('+rec.wasteType+')':''}${rec.reason?' — '+rec.reason:''}`, refId:'waste_'+rec.id, by:userTag()});
+  rec.deducted=true;
+}
+function wasteReverse(rec){
+  if(!rec.deducted) return;
+  const whId=wasteWhId(rec.warehouse); if(!whId) return;
+  const it=whArray(whId).find(i=>(i.history||[]).some(h=>h.refId==='waste_'+rec.id));
+  if(!it) return;
+  it.balance=Math.round((it.balance+(Number(rec.qty)||0))*100)/100;
+  it.history=it.history.filter(h=>h.refId!=='waste_'+rec.id);
+  rec.deducted=false;
+}
+
 /* ================= تقرير المخازن ================= */
 let whReportState = {wh:null, from:'', to:'', search:''};
 function histDay(h){ return (h.ts||h.date||'').slice(0,10); }
@@ -3924,6 +3975,7 @@ function classifyHist(h, trIds){
   const isIn = h.type==='اضافه'||h.type==='شراء';
   const isTr = (h.refId && trIds.has(h.refId)) || /تحويل|مرتجع لـ|راجع تلقائي|إرجاع/.test(h.notes||'');
   if(isTr) return isIn?'trIn':'trOut';
+  if((h.refId||'').startsWith('waste_') || /^هالك/.test(h.notes||'')) return 'waste';
   if(h.type==='شراء') return 'buy';
   if(isIn) return 'add';
   return 'out';
@@ -3933,9 +3985,9 @@ function buildWhReport(whId, from, to){
   let arr = whArray(whId);
   if(whId==='raw') arr = arr.filter(rawCatAllowed);
   const rows=[], log=[];
-  const tot={opening:0,buy:0,add:0,out:0,trIn:0,trOut:0,closing:0};
+  const tot={opening:0,buy:0,add:0,out:0,waste:0,trIn:0,trOut:0,closing:0};
   arr.forEach(it=>{
-    const r={name:it.name, unit:it.unit||'', buy:0,add:0,out:0,trIn:0,trOut:0, afterTo:0, afterFromNet:0};
+    const r={name:it.name, unit:it.unit||'', buy:0,add:0,out:0,waste:0,trIn:0,trOut:0, afterTo:0, afterFromNet:0};
     (it.history||[]).forEach(h=>{
       const d=histDay(h), q=Number(h.qty)||0, k=classifyHist(h,trIds);
       const sign=(k==='buy'||k==='add'||k==='trIn')?1:-1;
@@ -3947,10 +3999,10 @@ function buildWhReport(whId, from, to){
     });
     r.closing = Math.round(((Number(it.balance)||0) - r.afterTo)*100)/100;
     r.opening = Math.round(((Number(it.balance)||0) - r.afterFromNet)*100)/100;
-    const moved = r.buy||r.add||r.out||r.trIn||r.trOut;
+    const moved = r.buy||r.add||r.out||r.waste||r.trIn||r.trOut;
     r.moved = !!moved;
     rows.push(r);
-    ['opening','buy','add','out','trIn','trOut','closing'].forEach(k=>tot[k]+=r[k]);
+    ['opening','buy','add','out','waste','trIn','trOut','closing'].forEach(k=>tot[k]+=r[k]);
   });
   // التحويلات حسب المخزن التاني
   const flows={};
@@ -3966,7 +4018,7 @@ function buildWhReport(whId, from, to){
   log.sort((a,b)=>(b.ts||b.d).localeCompare(a.ts||a.d));
   return {rows, log, tot, flows};
 }
-const WR_KLABEL={buy:['شراء','pill-ok'],add:['إضافة','pill-ok'],out:['صرف','pill-danger'],trIn:['تحويل وارد','pill-navy'],trOut:['تحويل صادر','pill-warn']};
+const WR_KLABEL={buy:['شراء','pill-ok'],add:['إضافة','pill-ok'],out:['صرف','pill-danger'],trIn:['تحويل وارد','pill-navy'],trOut:['تحويل صادر','pill-warn'],waste:['هالك','pill-danger']};
 function renderWhReportTab(){
   const mine=myWarehouse();
   const choices = isAllWhUser()? WH_DEFS : WH_DEFS.filter(w=>w.id===mine);
@@ -3998,19 +4050,20 @@ function renderWhReportTab(){
    ${card('مشتريات',T.buy,'ok','download')}
    ${card('إضافة',T.add,'ok','spark')}
    ${card('صرف',T.out,'danger','waste')}
+   ${card('هالك',T.waste,'danger','alert')}
    ${card('تحويل وارد (استلام)',T.trIn,'','history')}
    ${card('تحويل صادر',T.trOut,'gold','history')}
    ${card('رصيد آخر الفترة',T.closing,'','box')}
   </div>
   ${Object.keys(R.flows).length?`<div class="chart-card" style="margin-bottom:16px;"><h3>التحويلات في الفترة</h3><div style="display:flex;gap:10px;flex-wrap:wrap;">${Object.entries(R.flows).map(([k,v])=>`<span class="pill pill-navy" style="font-size:13px;padding:6px 14px;">${esc(k)}: ${fmtNum(v)}</span>`).join('')}</div></div>`:''}
-  ${(()=>{ const days={}; R.log.forEach(l=>{ const d=days[l.d]||(days[l.d]={buy:0,add:0,out:0,trIn:0,trOut:0}); d[l.k]+=l.q; });
+  ${(()=>{ const days={}; R.log.forEach(l=>{ const d=days[l.d]||(days[l.d]={buy:0,add:0,out:0,waste:0,trIn:0,trOut:0}); d[l.k]+=l.q; });
     const ks=Object.keys(days).sort().reverse(); if(ks.length<2) return '';
-    return `<div class="panel"><div class="panel-head"><h2>ملخص يومي</h2></div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th>اليوم</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>تحويل وارد</th><th>تحويل صادر</th><th></th></tr></thead><tbody>
-    ${ks.map(k=>{const d=days[k];return `<tr><td style="font-weight:700">${fmtDateAr(k)}</td><td class="num">${fmtNum(d.buy)}</td><td class="num">${fmtNum(d.add)}</td><td class="num">${fmtNum(d.out)}</td><td class="num">${fmtNum(d.trIn)}</td><td class="num">${fmtNum(d.trOut)}</td><td><button class="btn btn-sm btn-ghost" data-wrday="${k}">تفاصيل اليوم</button></td></tr>`;}).join('')}
+    return `<div class="panel"><div class="panel-head"><h2>ملخص يومي</h2></div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th>اليوم</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>هالك</th><th>تحويل وارد</th><th>تحويل صادر</th><th></th></tr></thead><tbody>
+    ${ks.map(k=>{const d=days[k];return `<tr><td style="font-weight:700">${fmtDateAr(k)}</td><td class="num">${fmtNum(d.buy)}</td><td class="num">${fmtNum(d.add)}</td><td class="num">${fmtNum(d.out)}</td><td class="num">${fmtNum(d.waste)}</td><td class="num">${fmtNum(d.trIn)}</td><td class="num">${fmtNum(d.trOut)}</td><td><button class="btn btn-sm btn-ghost" data-wrday="${k}">تفاصيل اليوم</button></td></tr>`;}).join('')}
     </tbody></table></div></div></div>`; })()}
   <div class="panel"><div class="panel-head"><h2>حركة الأصناف (${rows.length})</h2></div><div class="panel-body">
-   ${rows.length?`<div class="table-wrap"><table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
-   ${rows.map(r=>`<tr><td style="font-weight:700">${esc(r.name)}${r.unit?` <span class="muted" style="font-size:11px">${esc(r.unit)}</span>`:''}</td><td class="num">${fmtNum(r.opening)}</td><td class="num" style="color:var(--ok)">${r.buy?fmtNum(r.buy):'—'}</td><td class="num" style="color:var(--ok)">${r.add?fmtNum(r.add):'—'}</td><td class="num" style="color:var(--danger)">${r.out?fmtNum(r.out):'—'}</td><td class="num">${r.trIn?fmtNum(r.trIn):'—'}</td><td class="num">${r.trOut?fmtNum(r.trOut):'—'}</td><td class="num">${fmtNum(r.closing)}</td></tr>`).join('')}
+   ${rows.length?`<div class="table-wrap"><table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>هالك</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
+   ${rows.map(r=>`<tr><td style="font-weight:700">${esc(r.name)}${r.unit?` <span class="muted" style="font-size:11px">${esc(r.unit)}</span>`:''}</td><td class="num">${fmtNum(r.opening)}</td><td class="num" style="color:var(--ok)">${r.buy?fmtNum(r.buy):'—'}</td><td class="num" style="color:var(--ok)">${r.add?fmtNum(r.add):'—'}</td><td class="num" style="color:var(--danger)">${r.out?fmtNum(r.out):'—'}</td><td class="num" style="color:var(--danger)">${r.waste?fmtNum(r.waste):'—'}</td><td class="num">${r.trIn?fmtNum(r.trIn):'—'}</td><td class="num">${r.trOut?fmtNum(r.trOut):'—'}</td><td class="num">${fmtNum(r.closing)}</td></tr>`).join('')}
    </tbody></table></div>`:`<div class="empty-state">مفيش حركة على أصناف المخزن ده في الفترة دي</div>`}
   </div></div>
   <div class="panel"><div class="panel-head"><h2>سجل الحركات بالتفصيل (${log.length})</h2></div><div class="panel-body">
@@ -4033,15 +4086,15 @@ function renderWhReportTab(){
   document.getElementById('wrExport').onclick=()=>{
     if(!window.XLSX){showToast('مكتبة Excel مش متاحة');return;}
     const wb=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.map(r=>({'الصنف':r.name,'أول الفترة':r.opening,'شراء':r.buy,'إضافة':r.add,'صرف':r.out,'تحويل وارد':r.trIn,'تحويل صادر':r.trOut,'آخر الفترة':r.closing}))),'ملخص');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.map(r=>({'الصنف':r.name,'أول الفترة':r.opening,'شراء':r.buy,'إضافة':r.add,'صرف':r.out,'هالك':r.waste,'تحويل وارد':r.trIn,'تحويل صادر':r.trOut,'آخر الفترة':r.closing}))),'ملخص');
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(log.map(l=>({'التاريخ':l.d,'الصنف':l.item,'نوع الحركة':WR_KLABEL[l.k][0],'الكمية':l.q,'البيان':l.notes,'بواسطة':l.by}))),'الحركات');
     XLSX.writeFile(wb,`تقرير-${whLabel(S.wh)}-${S.from}-${S.to}.xlsx`);
   };
   document.getElementById('wrPrint').onclick=()=>{
     document.getElementById('printArea').innerHTML=`<div class="pr-header"><div><div class="pr-brand">egy<span>gulf</span> Foods</div><div class="pr-title">تقرير ${esc(whLabel(S.wh))}</div></div><div class="pr-meta">من ${fmtDateAr(S.from)} إلى ${fmtDateAr(S.to)}</div></div>
-    <table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
-    ${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${fmtNum(r.opening)}</td><td>${fmtNum(r.buy)}</td><td>${fmtNum(r.add)}</td><td>${fmtNum(r.out)}</td><td>${fmtNum(r.trIn)}</td><td>${fmtNum(r.trOut)}</td><td>${fmtNum(r.closing)}</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td>الإجمالي</td><td>${fmtNum(T.opening)}</td><td>${fmtNum(T.buy)}</td><td>${fmtNum(T.add)}</td><td>${fmtNum(T.out)}</td><td>${fmtNum(T.trIn)}</td><td>${fmtNum(T.trOut)}</td><td>${fmtNum(T.closing)}</td></tr></tfoot></table>
+    <table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>هالك</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${fmtNum(r.opening)}</td><td>${fmtNum(r.buy)}</td><td>${fmtNum(r.add)}</td><td>${fmtNum(r.out)}</td><td>${fmtNum(r.waste)}</td><td>${fmtNum(r.trIn)}</td><td>${fmtNum(r.trOut)}</td><td>${fmtNum(r.closing)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>الإجمالي</td><td>${fmtNum(T.opening)}</td><td>${fmtNum(T.buy)}</td><td>${fmtNum(T.add)}</td><td>${fmtNum(T.out)}</td><td>${fmtNum(T.waste)}</td><td>${fmtNum(T.trIn)}</td><td>${fmtNum(T.trOut)}</td><td>${fmtNum(T.closing)}</td></tr></tfoot></table>
     <div class="pr-foot">EgyGulf Foods — نظام إدارة المخازن والإنتاج</div>`;
     window.print();
   };
