@@ -2973,11 +2973,12 @@ let ordersState = { selected:null };
 
 /* ================= PURCHASES + WAREHOUSE TRANSFERS ================= */
 const WH_DEFS = [
-  {id:'raw', label:'مخزن الخامات'},
-  {id:'manufacturing', label:'مخزن التصنيع'},
-  {id:'packaging', label:'مخزن التعبئة والتغليف'},
-  {id:'finished', label:'مخزن الإنتاج التام'},
+  {id:'raw', label:'مخزن الخامات', keeper:'تيمور'},
+  {id:'manufacturing', label:'مخزن التصنيع', keeper:'أحمد'},
+  {id:'packaging', label:'مخزن التعبئة والتغليف', keeper:'منار'},
+  {id:'finished', label:'مخزن الإنتاج التام', keeper:'عادل'},
 ];
+function whKeeper(idOrLabel){ const w=WH_DEFS.find(x=>x.id===idOrLabel||x.label===idOrLabel); return w?w.keeper:''; }
 function whArray(whId){
   if(whId==='raw') return DB.raw;
   if(whId==='manufacturing') return DB.whManufacturing;
@@ -3997,7 +3998,7 @@ function shareWasteReport(key){
   const rid = rec ? (rec.reportId||null) : key;
   const recs = rid ? DB.waste.filter(w=>w.reportId===rid) : [rec];
   if(!recs.length||!recs[0]) return;
-  printWasteRecs(recs, 'تقرير هالك', `${esc(recs[0].warehouse||'—')}<br>${fmtDateAr(recs[0].date)}`);
+  printWasteRecs(recs, 'تقرير هالك', `${esc(recs[0].warehouse||'—')}${whKeeper(recs[0].warehouse)?' — أمين المخزن: '+esc(whKeeper(recs[0].warehouse)):''}<br>${fmtDateAr(recs[0].date)}`);
 }
 function openWasteBatchModal(){
   const whs = wasteWhLabels();
@@ -4189,9 +4190,9 @@ function renderWhReportTab(){
   const card=(lbl,v,cls,ic)=>`<div class="stat-card" data-wrk="${KMAP[lbl]||''}" style="cursor:pointer" title="اضغط لعرض التفاصيل"><div class="icon-wrap ${cls}">${svgIcon(ic)}</div><div class="label">${lbl}</div><div class="value">${fmtNum(v)}</div></div>`;
   const T=R.tot;
   document.getElementById('content').innerHTML=`<div class="content-fade">
-  <div class="panel"><div class="panel-head"><h2>تقرير ${esc(whLabel(S.wh))} — ${S.from===S.to?'يوم '+fmtDateAr(S.from):fmtDateAr(S.from)+' إلى '+fmtDateAr(S.to)}</h2>
+  <div class="panel"><div class="panel-head"><div><h2>تقرير ${esc(whLabel(S.wh))} — ${S.from===S.to?'يوم '+fmtDateAr(S.from):fmtDateAr(S.from)+' إلى '+fmtDateAr(S.to)}</h2><div class="muted" style="font-size:13px;margin-top:4px;">أمين المخزن: <b style="color:var(--navy)">${esc(whKeeper(S.wh))}</b></div></div>
    <div class="toolbar">
-    <select class="filter-box" id="wrWh">${choices.map(w=>`<option value="${w.id}" ${w.id===S.wh?'selected':''}>${esc(w.label)}</option>`).join('')}</select>
+    <select class="filter-box" id="wrWh">${choices.map(w=>`<option value="${w.id}" ${w.id===S.wh?'selected':''}>${esc(w.label)} — ${esc(w.keeper)}</option>`).join('')}</select>
     <button class="btn btn-sm ${S.from===todayISO()&&S.to===todayISO()?'btn-primary':'btn-ghost'}" id="wrToday">النهارده</button>
     <button class="btn btn-sm btn-ghost" id="wrYest">امبارح</button>
     <button class="btn btn-sm btn-ghost" id="wrMonth">الشهر ده</button>
@@ -4255,7 +4256,7 @@ function renderWhReportTab(){
     if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); else showToast('مفيش حركات من النوع ده في الفترة دي');
   });
   const waB=document.getElementById('wrWasteWa');
-  if(waB) waB.onclick=()=>printWasteRecs(R.wasteRecs, `تقرير هالك — ${whLabel(S.wh)}`, S.from===S.to?fmtDateAr(S.from):`من ${fmtDateAr(S.from)} إلى ${fmtDateAr(S.to)}`);
+  if(waB) waB.onclick=()=>printWasteRecs(R.wasteRecs, `تقرير هالك — ${whLabel(S.wh)}`, `أمين المخزن: ${esc(whKeeper(S.wh))}<br>`+(S.from===S.to?fmtDateAr(S.from):`من ${fmtDateAr(S.from)} إلى ${fmtDateAr(S.to)}`));
   const sb=document.getElementById('wrSearch');
   sb.onchange=e=>{S.search=e.target.value;re();};
   document.getElementById('wrExport').onclick=()=>{
@@ -4267,7 +4268,7 @@ function renderWhReportTab(){
     XLSX.writeFile(wb,`تقرير-${whLabel(S.wh)}-${S.from}-${S.to}.xlsx`);
   };
   document.getElementById('wrPrint').onclick=()=>{
-    document.getElementById('printArea').innerHTML=`<div class="pr-header"><div><div class="pr-brand">egy<span>gulf</span> Foods</div><div class="pr-title">تقرير ${esc(whLabel(S.wh))}</div></div><div class="pr-meta">من ${fmtDateAr(S.from)} إلى ${fmtDateAr(S.to)}</div></div>
+    document.getElementById('printArea').innerHTML=`<div class="pr-header"><div><div class="pr-brand">egy<span>gulf</span> Foods</div><div class="pr-title">تقرير ${esc(whLabel(S.wh))}</div></div><div class="pr-meta">من ${fmtDateAr(S.from)} إلى ${fmtDateAr(S.to)}<br>أمين المخزن: ${esc(whKeeper(S.wh))}</div></div>
     <table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>هالك</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
     ${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${fmtNum(r.opening)}</td><td>${fmtNum(r.buy)}</td><td>${fmtNum(r.add)}</td><td>${fmtNum(r.out)}</td><td>${fmtNum(r.waste)}</td><td>${fmtNum(r.trIn)}</td><td>${fmtNum(r.trOut)}</td><td>${fmtNum(r.closing)}</td></tr>`).join('')}</tbody>
     <tfoot><tr><td>الإجمالي</td><td>—</td><td>${fmtNum(T.buy)}</td><td>${fmtNum(T.add)}</td><td>${fmtNum(T.out)}</td><td>${fmtNum(T.waste)}</td><td>${fmtNum(T.trIn)}</td><td>${fmtNum(T.trOut)}</td><td>—</td></tr></tfoot></table>
