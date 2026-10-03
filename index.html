@@ -4203,14 +4203,12 @@ function renderWhReportTab(){
     <button class="btn btn-ghost" id="wrPrint">${svgIcon('print','sm')} طباعة</button>
    </div></div></div>
   <div class="cards-grid">
-   ${card('رصيد أول الفترة',T.opening,'','box')}
    ${card('مشتريات',T.buy,'ok','download')}
    ${card('إضافة',T.add,'ok','spark')}
    ${card('صرف',T.out,'danger','waste')}
    ${card('هالك',T.waste,'danger','alert')}
    ${card('تحويل وارد (استلام)',T.trIn,'','history')}
    ${card('تحويل صادر',T.trOut,'gold','history')}
-   ${card('رصيد آخر الفترة',T.closing,'','box')}
   </div>
   ${Object.keys(R.flows).length?`<div class="chart-card" style="margin-bottom:16px;"><h3>التحويلات في الفترة</h3><div style="display:flex;gap:10px;flex-wrap:wrap;">${Object.entries(R.flows).map(([k,v])=>`<span class="pill pill-navy" style="font-size:13px;padding:6px 14px;">${esc(k)}: ${fmtNum(v)}</span>`).join('')}</div></div>`:''}
   ${(()=>{ const days={}; const mk=k=>days[k]||(days[k]={buy:0,add:0,out:0,waste:0,trIn:0,trOut:0});
@@ -4260,7 +4258,7 @@ function renderWhReportTab(){
     document.getElementById('printArea').innerHTML=`<div class="pr-header"><div><div class="pr-brand">egy<span>gulf</span> Foods</div><div class="pr-title">تقرير ${esc(whLabel(S.wh))}</div></div><div class="pr-meta">من ${fmtDateAr(S.from)} إلى ${fmtDateAr(S.to)}</div></div>
     <table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>هالك</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
     ${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${fmtNum(r.opening)}</td><td>${fmtNum(r.buy)}</td><td>${fmtNum(r.add)}</td><td>${fmtNum(r.out)}</td><td>${fmtNum(r.waste)}</td><td>${fmtNum(r.trIn)}</td><td>${fmtNum(r.trOut)}</td><td>${fmtNum(r.closing)}</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td>الإجمالي</td><td>${fmtNum(T.opening)}</td><td>${fmtNum(T.buy)}</td><td>${fmtNum(T.add)}</td><td>${fmtNum(T.out)}</td><td>${fmtNum(T.waste)}</td><td>${fmtNum(T.trIn)}</td><td>${fmtNum(T.trOut)}</td><td>${fmtNum(T.closing)}</td></tr></tfoot></table>
+    <tfoot><tr><td>الإجمالي</td><td>—</td><td>${fmtNum(T.buy)}</td><td>${fmtNum(T.add)}</td><td>${fmtNum(T.out)}</td><td>${fmtNum(T.waste)}</td><td>${fmtNum(T.trIn)}</td><td>${fmtNum(T.trOut)}</td><td>—</td></tr></tfoot></table>
     ${R.wasteRecs.length?`<div class="pr-title" style="margin-top:18px;">الهالك — الإجمالي ${fmtNum(T.waste)}</div>
     <table><thead><tr><th>التاريخ</th><th>الصنف</th><th>الكمية</th><th>نوع الهالك</th><th>السبب</th></tr></thead><tbody>
     ${R.wasteRecs.map(w=>`<tr><td>${fmtDateAr(w.date)}</td><td>${esc(w.item)}</td><td>${fmtNum(w.qty)}</td><td>${esc(w.wasteType)||'—'}</td><td>${esc(w.reason)||'—'}</td></tr>`).join('')}</tbody></table>`:''}
