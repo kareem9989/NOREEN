@@ -2823,7 +2823,7 @@ function openHistoryDrawer(tabId, item){
                   <span>${h.type==='اضافه'?'إضافة':(h.type==='شراء'?'شراء':(h.type==='مرتجع'?'مرتجع':'صرف'))} ${fmtNum(h.qty)}${h.notes?' — '+esc(h.notes):''}</span>
                   <span style="color:${(h.type==='اضافه'||h.type==='شراء')?'var(--ok)':'var(--danger)'}">${(h.type==='اضافه'||h.type==='شراء')?'+':'−'}${fmtNum(h.qty)}</span>
                 </div>
-                <div class="date">${h.ts ? fmtDateTimeAr(h.ts) : fmtDateAr(h.date)}${h.by?` — بواسطة ${esc(h.by)}`:''}</div>
+                <div class="date">${h.ts ? fmtDateTimeAr(h.ts) : fmtDateAr(h.date)}${h.by?` — بواسطة ${esc(byName(h.by))}`:''}</div>
               </div>
             </div>`).join('')}
         </div>` : `<div class="empty-state"><div class="big">${svgIcon('history')}</div>لا يوجد حركات مسجلة بعد على هذا الصنف</div>`}
@@ -4226,7 +4226,7 @@ function renderWhReportTab(){
       const L=log.filter(l=>l.k===k); if(!L.length) return '';
       const sum=L.reduce((a,l)=>a+l.q,0);
       return `<div class="panel" id="wrsec_${k}"><div class="panel-head"><h2>${t} (${L.length} حركة)</h2><span class="pill ${WR_KLABEL[k][1]}" style="font-size:13px;padding:5px 12px;">الإجمالي: ${fmtNum(sum)}</span></div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th>الوقت</th><th>الصنف</th><th>الكمية</th><th>البيان</th><th>بواسطة</th></tr></thead><tbody>
-      ${L.map(l=>`<tr><td>${l.ts?fmtDateTimeAr(l.ts):fmtDateAr(l.d)}</td><td style="font-weight:700">${esc(l.item)}</td><td class="num" style="font-weight:800">${fmtNum(l.q)}</td><td class="muted" style="white-space:normal;max-width:320px">${esc(l.notes)||'—'}</td><td>${esc(l.by)||'—'}</td></tr>`).join('')}
+      ${L.map(l=>`<tr><td>${l.ts?fmtDateTimeAr(l.ts):fmtDateAr(l.d)}</td><td style="font-weight:700">${esc(l.item)}</td><td class="num" style="font-weight:800">${fmtNum(l.q)}</td><td class="muted" style="white-space:normal;max-width:320px">${esc(l.notes)||'—'}</td><td>${esc(byName(l.by))||'—'}</td></tr>`).join('')}
       </tbody></table></div></div></div>`;
     }).join('');
     return parts || `<div class="panel"><div class="panel-body"><div class="empty-state">مفيش أي حركة على ${esc(whLabel(S.wh))} في الفترة دي</div></div></div>`;
@@ -4263,7 +4263,7 @@ function renderWhReportTab(){
     if(!window.XLSX){showToast('مكتبة Excel مش متاحة');return;}
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.map(r=>({'الصنف':r.name,'أول الفترة':r.opening,'شراء':r.buy,'إضافة':r.add,'صرف':r.out,'هالك':r.waste,'تحويل وارد':r.trIn,'تحويل صادر':r.trOut,'آخر الفترة':r.closing}))),'ملخص');
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(log.map(l=>({'التاريخ':l.d,'الصنف':l.item,'نوع الحركة':WR_KLABEL[l.k][0],'الكمية':l.q,'البيان':l.notes,'بواسطة':l.by}))),'الحركات');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(log.map(l=>({'التاريخ':l.d,'الصنف':l.item,'نوع الحركة':WR_KLABEL[l.k][0],'الكمية':l.q,'البيان':l.notes,'بواسطة':byName(l.by)}))),'الحركات');
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(R.wasteRecs.map(w=>({'التاريخ':w.date,'الصنف':w.item,'الكمية':w.qty,'نوع الهالك':w.wasteType||'','السبب':w.reason||''}))),'الهالك');
     XLSX.writeFile(wb,`تقرير-${whLabel(S.wh)}-${S.from}-${S.to}.xlsx`);
   };
@@ -4276,7 +4276,7 @@ function renderWhReportTab(){
       const L=log.filter(l=>l.k===k); if(!L.length) return '';
       return `<div class="pr-title" style="margin-top:18px;">${t} — الإجمالي ${fmtNum(L.reduce((a,l)=>a+l.q,0))}</div>
       <table><thead><tr><th>الوقت</th><th>الصنف</th><th>الكمية</th><th>البيان</th><th>بواسطة</th></tr></thead><tbody>
-      ${L.map(l=>`<tr><td>${l.ts?fmtDateTimeAr(l.ts):fmtDateAr(l.d)}</td><td>${esc(l.item)}</td><td>${fmtNum(l.q)}</td><td>${esc(l.notes)||'—'}</td><td>${esc(l.by)||'—'}</td></tr>`).join('')}</tbody></table>`;
+      ${L.map(l=>`<tr><td>${l.ts?fmtDateTimeAr(l.ts):fmtDateAr(l.d)}</td><td>${esc(l.item)}</td><td>${fmtNum(l.q)}</td><td>${esc(l.notes)||'—'}</td><td>${esc(byName(l.by))||'—'}</td></tr>`).join('')}</tbody></table>`;
     }).join('')}
     ${R.wasteRecs.length?`<div class="pr-title" style="margin-top:18px;">الهالك — الإجمالي ${fmtNum(T.waste)}</div>
     <table><thead><tr><th>التاريخ</th><th>الصنف</th><th>الكمية</th><th>نوع الهالك</th><th>السبب</th></tr></thead><tbody>
@@ -4831,8 +4831,16 @@ function openDispatchModal(order){
 }
 
 /* ================= تسجيل الدخول ================= */
+function byName(tag){
+  if(!tag) return '';
+  const un=String(tag).split(' - ').pop().trim();
+  const u=(DB.users||[]).find(x=>x.username===un) || (DB.users||[]).find(x=>x.name===String(tag).trim());
+  if(u && ROLE_WH[u.role]){ const wh=ROLE_WH[u.role]; return `${whKeeper(wh)} (أمين ${whLabel(wh)})`; }
+  return u ? u.name : tag;
+}
 function userTag(){
   if(!currentUser) return '—';
+  if(ROLE_WH[currentUser.role]){ const wh=ROLE_WH[currentUser.role]; return `${whKeeper(wh)} (أمين ${whLabel(wh)}) - ${currentUser.username}`; }
   return `${currentUser.name}${currentUser.username?' - '+currentUser.username:''}`;
 }
 
