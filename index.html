@@ -1629,11 +1629,11 @@ const CONFIGS = {
     dateKey:'date',
   },
   waste:{
-    title:'تقرير الهالك', addLabel:'تسجيل هالك جديد',
+    title:'تقرير الهالك', addLabel:'تقرير هالك جديد',
     fields:[
       {key:'date', label:'التاريخ', type:'date', required:true},
       {key:'warehouse', label:'المخزن', type:'select', dynamicOptions:'wasteWh', placeholder:'— اختر المخزن —', required:true},
-      {key:'item', label:'الصنف (من المخزن ده — هيتخصم من رصيده)', type:'text', required:true, itemsFromWh:true},
+      {key:'item', label:'الصنف', type:'text', required:true, itemsFromWh:true},
       {key:'wasteType', label:'نوع الهالك', type:'text', required:false},
       {key:'qty', label:'الكمية', type:'number', required:true, step:'0.01'},
       {key:'reason', label:'السبب', type:'text', required:false},
@@ -2025,6 +2025,7 @@ function renderGenericTab(tabId){
   const addBtnEl = document.getElementById('addBtn');
   if(addBtnEl) addBtnEl.addEventListener('click', ()=> {
     if(tabId==='fillingReports' || tabId==='productionReports'){ openReportOrderModal(tabId); return; }
+    if(tabId==='waste'){ openWasteBatchModal(); return; }
     openItemModal(tabId, null, activeSubcat ? {category:activeSubcat.id} : null);
   });
   document.getElementById('exportBtn').addEventListener('click', ()=> exportToExcel(tabId));
@@ -2188,6 +2189,7 @@ function renderTableRows(tabId){
       <td>
         <div class="row-actions">
           ${hasHistory ? `<button class="icon-btn" data-act="history" data-id="${item.id}" title="سجل الحركة">${svgIcon('history','sm')}</button>` : ''}
+          ${tabId==='waste' ? `<button class="icon-btn" data-act="wa" data-id="${item.id}" title="إرسال التقرير واتساب" style="color:#25D366;font-weight:800;font-size:11px;">WA</button>` : ''}
           ${isReadOnlyTab(tabId) ? '' : `<button class="icon-btn" data-act="edit" data-id="${item.id}" title="تعديل">${svgIcon('edit','sm')}</button>
           <button class="icon-btn danger" data-act="delete" data-id="${item.id}" title="حذف">${svgIcon('trash','sm')}</button>`}
         </div>
@@ -2200,6 +2202,7 @@ function renderTableRows(tabId){
     <tbody>${rowsHtml}</tbody>
   </table></div>`;
 
+  holder.querySelectorAll('[data-act="wa"]').forEach(b=>b.addEventListener('click', ()=>shareWasteReport(b.dataset.id)));
   holder.querySelectorAll('[data-act="history"]').forEach(b=>b.addEventListener('click', ()=>{
     const item = DB[tabId].find(i=>i.id===b.dataset.id);
     openHistoryDrawer(tabId, item);
@@ -2586,7 +2589,7 @@ function openItemModal(tabId, item, presetVals){
       const arr=whArray(wasteWhId(whSel.value));
       document.getElementById('wasteItemsList').innerHTML=arr.map(i=>`<option value="${esc(i.name)}">رصيد: ${fmtNum(i.balance)}</option>`).join('');
       const it=arr.find(i=>i.name.trim()===itIn.value.trim());
-      document.getElementById('wasteBal').textContent = itIn.value.trim()? (it?`الرصيد الحالي: ${fmtNum(it.balance)}`:'الصنف ده مش موجود في المخزن — الهالك هيتسجل من غير خصم') : '';
+      document.getElementById('wasteBal').textContent = itIn.value.trim()? (it?`الرصيد الحالي: ${fmtNum(it.balance)}`:'') : '';
     };
     whSel.addEventListener('change',upd); itIn.addEventListener('input',upd); upd();
   }
@@ -3949,6 +3952,8 @@ function wasteWhLabels(){
 }
 function wasteWhId(label){ const w=WH_DEFS.find(x=>x.label===label); return w?w.id:null; }
 function wasteApply(rec){
+  // تقرير الهالك بقى للمتابعة والإرسال بس — مفيش أي خصم من أرصدة المخازن
+  rec.deducted=false; return;
   const whId=wasteWhId(rec.warehouse); if(!whId) return;
   const it=whArray(whId).find(i=>i.name.trim()===(rec.item||'').trim());
   const q=Number(rec.qty)||0;
@@ -3966,6 +3971,122 @@ function wasteReverse(rec){
   it.balance=Math.round((it.balance+(Number(rec.qty)||0))*100)/100;
   it.history=it.history.filter(h=>h.refId!=='waste_'+rec.id);
   rec.deducted=false;
+}
+
+function wasteReportText(recs){
+  const r0=recs[0];
+  const total=recs.reduce((a,r)=>a+(Number(r.qty)||0),0);
+  let t=`*تقرير هالك — EgyGulf Foods*\n📅 ${fmtDateAr(r0.date)}\n🏭 ${r0.warehouse||'—'}\n\n`;
+  recs.forEach((r,i)=>{ t+=`${i+1}- ${r.item}: ${fmtNum(r.qty)}${r.wasteType?` (${r.wasteType})`:''}${r.reason?` — ${r.reason}`:''}\n`; });
+  t+=`\n*الإجمالي: ${fmtNum(total)}*\nسجّله: ${userTag()}`;
+  return t;
+}
+function shareWasteReport(key){
+  const rec=DB.waste.find(w=>w.id===key);
+  const rid = rec ? (rec.reportId||null) : key;
+  const recs = rid ? DB.waste.filter(w=>w.reportId===rid) : [rec];
+  if(!recs.length||!recs[0]) return;
+  const text=wasteReportText(recs);
+  document.getElementById('modalRoot').innerHTML=`
+    <div class="modal-overlay" id="overlay"><div class="modal">
+      <div class="modal-head"><h3>إرسال تقرير الهالك</h3><button class="modal-close" id="closeX">✕</button></div>
+      <div class="modal-body"><textarea id="waText" style="width:100%;min-height:220px;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--ink);font-family:inherit;font-size:13.5px;">${esc(text)}</textarea></div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="copyBtn">نسخ</button>
+        <button class="btn btn-primary" id="waBtn" style="background:#25D366;">إرسال واتساب</button>
+      </div></div></div>`;
+  const overlay=document.getElementById('overlay');
+  overlay.addEventListener('click',e=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').onclick=closeModal;
+  document.getElementById('copyBtn').onclick=async ()=>{ const v=document.getElementById('waText').value; try{ await navigator.clipboard.writeText(v); }catch(e){ document.getElementById('waText').select(); document.execCommand('copy'); } showToast('تم النسخ'); };
+  document.getElementById('waBtn').onclick=()=>{ window.open('https://wa.me/?text='+encodeURIComponent(document.getElementById('waText').value),'_blank'); };
+}
+function openWasteBatchModal(){
+  const whs = wasteWhLabels();
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay">
+      <div class="modal" style="max-width:720px;">
+        <div class="modal-head"><h3>تقرير هالك جديد</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-body">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            <div class="field" style="flex:1;min-width:160px;"><label>التاريخ *</label><input type="date" id="wb_date" value="${todayISO()}"></div>
+            <div class="field" style="flex:1.4;min-width:190px;"><label>المخزن *</label>
+              <select id="wb_wh">${whs.length>1?'<option value="">— اختر المخزن —</option>':''}${whs.map(w=>`<option value="${esc(w)}">${esc(w)}</option>`).join('')}</select></div>
+          </div>
+          <div class="field"><label>الأصناف وكمية الهالك * <span class="muted" style="font-weight:500">(اكتب كل صنف وجنبه كميته)</span></label>
+            <div id="wbRows" style="display:flex;flex-direction:column;gap:8px;"></div>
+            <button type="button" class="btn btn-ghost btn-sm" id="wbAdd" style="margin-top:8px;">+ صنف تاني</button>
+            <datalist id="wbItems"></datalist>
+          </div>
+          <div class="field"><label>ملاحظات عامة للتقرير (اختياري)</label><input type="text" id="wb_notes" placeholder="مثال: وردية الصبح"></div>
+          <div class="muted" style="font-size:12px;">التقرير ده للمتابعة بس ومش بيخصم من أي مخزن — بعد الحفظ تقدر تبعته واتساب، ومسئول المخزن هو اللي يظبط الرصيد.</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
+          <button class="btn btn-primary" id="saveBtn">حفظ التقرير</button>
+        </div>
+      </div>
+    </div>`;
+  const overlay=document.getElementById('overlay');
+  overlay.addEventListener('click',e=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').onclick=closeModal;
+  document.getElementById('cancelBtn').onclick=closeModal;
+  const whSel=document.getElementById('wb_wh'), wrap=document.getElementById('wbRows');
+  let n=0;
+  const items=()=>whArray(wasteWhId(whSel.value));
+  function bal(row){
+    const name=row.querySelector('.wb_item').value.trim();
+    const it=items().find(i=>i.name.trim()===name);
+    row.querySelector('.wb_bal').textContent = name ? (it?`الرصيد: ${fmtNum(it.balance)}`:'') : '';
+  }
+  function addRow(){
+    const d=document.createElement('div');
+    d.className='cr-product-row wb-row';
+    d.style.cssText='display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;';
+    d.innerHTML=`
+      <div class="field" style="flex:2.2;min-width:150px;margin:0;"><label>${n===0?'الصنف':''}</label><input type="text" class="wb_item" list="wbItems" placeholder="اسم الصنف"></div>
+      <div class="field" style="flex:1;min-width:80px;margin:0;"><label>${n===0?'الكمية':''}</label><input type="number" step="0.01" class="wb_qty" placeholder="0"></div>
+      <div class="field" style="flex:1.3;min-width:110px;margin:0;"><label>${n===0?'نوع الهالك':''}</label><input type="text" class="wb_type" placeholder="اختياري"></div>
+      <div class="field" style="flex:1.3;min-width:110px;margin:0;"><label>${n===0?'السبب':''}</label><input type="text" class="wb_reason" placeholder="مكنة / جرش..."></div>
+      <button type="button" class="icon-btn danger cr-remove-row" title="حذف">${svgIcon('trash','sm')}</button>
+      <div class="muted wb_bal" style="font-size:11px;flex-basis:100%;margin-top:-4px;"></div>`;
+    wrap.appendChild(d); n++;
+    d.querySelector('.cr-remove-row').onclick=()=>{ if(wrap.children.length>1) d.remove(); else showToast('لازم صنف واحد على الأقل'); };
+    d.querySelector('.wb_item').addEventListener('input',()=>bal(d));
+    d.querySelector('.wb_qty').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); if(d===wrap.lastElementChild) addRow(); wrap.lastElementChild.querySelector('.wb_item').focus(); }});
+  }
+  function refill(){
+    document.getElementById('wbItems').innerHTML=items().map(i=>`<option value="${esc(i.name)}">رصيد: ${fmtNum(i.balance)}</option>`).join('');
+    wrap.querySelectorAll('.wb-row').forEach(bal);
+  }
+  whSel.addEventListener('change',refill);
+  addRow(); addRow(); addRow(); refill();
+  document.getElementById('wbAdd').onclick=()=>addRow();
+  document.getElementById('saveBtn').onclick=async ()=>{
+    const date=document.getElementById('wb_date').value, wh=whSel.value, notes=document.getElementById('wb_notes').value.trim();
+    if(!date){ showToast('اختر التاريخ'); return; }
+    if(!wh){ showToast('اختر المخزن'); return; }
+    const rows=[...wrap.querySelectorAll('.wb-row')].map(r=>({
+      item:r.querySelector('.wb_item').value.trim(), qty:Number(r.querySelector('.wb_qty').value),
+      wasteType:r.querySelector('.wb_type').value.trim(), reason:r.querySelector('.wb_reason').value.trim()
+    })).filter(r=>r.item||r.qty);
+    if(!rows.length){ showToast('اكتب صنف واحد وكميته على الأقل'); return; }
+    for(const r of rows){
+      if(!r.item){ showToast('فيه صف فيه كمية من غير اسم صنف'); return; }
+      if(!r.qty||r.qty<=0){ showToast(`اكتب كمية صحيحة لـ "${r.item}"`); return; }
+    }
+    const reportId=uid();
+    const recs=rows.map(r=>{
+      const rec={id:uid(), reportId, date, warehouse:wh, item:r.item, wasteType:r.wasteType, qty:r.qty, reason:[r.reason,notes].filter(Boolean).join(' — ')};
+      wasteApply(rec); return rec;
+    });
+    DB.waste.unshift(...recs);
+    logAction(`سجّل تقرير هالك (${recs.length} صنف) على ${wh}`);
+    await persist();
+    closeModal(); renderTableRows('waste'); renderNav();
+    showToast(`تم حفظ تقرير الهالك (${recs.length} صنف)`);
+    shareWasteReport(reportId);
+  };
 }
 
 /* ================= تقرير المخازن ================= */
