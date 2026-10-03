@@ -2189,7 +2189,7 @@ function renderTableRows(tabId){
       <td>
         <div class="row-actions">
           ${hasHistory ? `<button class="icon-btn" data-act="history" data-id="${item.id}" title="سجل الحركة">${svgIcon('history','sm')}</button>` : ''}
-          ${tabId==='waste' ? `<button class="icon-btn" data-act="wa" data-id="${item.id}" title="إرسال التقرير واتساب" style="color:#25D366;font-weight:800;font-size:11px;">WA</button>` : ''}
+          ${tabId==='waste' ? `<button class="icon-btn" data-act="wa" data-id="${item.id}" title="تحميل التقرير PDF">${svgIcon('print','sm')}</button>` : ''}
           ${isReadOnlyTab(tabId) ? '' : `<button class="icon-btn" data-act="edit" data-id="${item.id}" title="تعديل">${svgIcon('edit','sm')}</button>
           <button class="icon-btn danger" data-act="delete" data-id="${item.id}" title="حذف">${svgIcon('trash','sm')}</button>`}
         </div>
@@ -3981,25 +3981,23 @@ function wasteReportText(recs){
   t+=`\n*الإجمالي: ${fmtNum(total)}*\nسجّله: ${userTag()}`;
   return t;
 }
+function printWasteRecs(recs, title, sub){
+  const total=recs.reduce((a,w)=>a+(Number(w.qty)||0),0);
+  document.getElementById('printArea').innerHTML=`
+    <div class="pr-header"><div><div class="pr-brand">egy<span>gulf</span> Foods</div><div class="pr-title">${esc(title)}</div></div>
+    <div class="pr-meta">${sub}<br>تاريخ الطباعة: ${new Date().toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'})}<br>بواسطة: ${esc(userTag())}</div></div>
+    <table><thead><tr><th>#</th><th>التاريخ</th><th>الصنف</th><th>الكمية</th><th>نوع الهالك</th><th>السبب</th></tr></thead><tbody>
+    ${recs.map((w,i)=>`<tr><td>${i+1}</td><td>${fmtDateAr(w.date)}</td><td>${esc(w.item)}</td><td>${fmtNum(w.qty)}</td><td>${esc(w.wasteType)||'—'}</td><td>${esc(w.reason)||'—'}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="3">الإجمالي</td><td>${fmtNum(total)}</td><td colspan="2"></td></tr></tfoot></table>
+    <div class="pr-foot">EgyGulf Foods — نظام إدارة المخازن والإنتاج</div>`;
+  window.print();
+}
 function shareWasteReport(key){
   const rec=DB.waste.find(w=>w.id===key);
   const rid = rec ? (rec.reportId||null) : key;
   const recs = rid ? DB.waste.filter(w=>w.reportId===rid) : [rec];
   if(!recs.length||!recs[0]) return;
-  const text=wasteReportText(recs);
-  document.getElementById('modalRoot').innerHTML=`
-    <div class="modal-overlay" id="overlay"><div class="modal">
-      <div class="modal-head"><h3>إرسال تقرير الهالك</h3><button class="modal-close" id="closeX">✕</button></div>
-      <div class="modal-body"><textarea id="waText" style="width:100%;min-height:220px;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--ink);font-family:inherit;font-size:13.5px;">${esc(text)}</textarea></div>
-      <div class="modal-foot">
-        <button class="btn btn-ghost" id="copyBtn">نسخ</button>
-        <button class="btn btn-primary" id="waBtn" style="background:#25D366;">إرسال واتساب</button>
-      </div></div></div>`;
-  const overlay=document.getElementById('overlay');
-  overlay.addEventListener('click',e=>{ if(e.target===overlay) closeModal(); });
-  document.getElementById('closeX').onclick=closeModal;
-  document.getElementById('copyBtn').onclick=async ()=>{ const v=document.getElementById('waText').value; try{ await navigator.clipboard.writeText(v); }catch(e){ document.getElementById('waText').select(); document.execCommand('copy'); } showToast('تم النسخ'); };
-  document.getElementById('waBtn').onclick=()=>{ window.open('https://wa.me/?text='+encodeURIComponent(document.getElementById('waText').value),'_blank'); };
+  printWasteRecs(recs, 'تقرير هالك', `${esc(recs[0].warehouse||'—')}<br>${fmtDateAr(recs[0].date)}`);
 }
 function openWasteBatchModal(){
   const whs = wasteWhLabels();
@@ -4019,7 +4017,7 @@ function openWasteBatchModal(){
             <datalist id="wbItems"></datalist>
           </div>
           <div class="field"><label>ملاحظات عامة للتقرير (اختياري)</label><input type="text" id="wb_notes" placeholder="مثال: وردية الصبح"></div>
-          <div class="muted" style="font-size:12px;">التقرير ده للمتابعة بس ومش بيخصم من أي مخزن — بعد الحفظ تقدر تبعته واتساب، ومسئول المخزن هو اللي يظبط الرصيد.</div>
+          <div class="muted" style="font-size:12px;">التقرير ده للمتابعة بس ومش بيخصم من أي مخزن — بعد الحفظ هيفتحلك PDF تحفظه وتبعته، ومسئول المخزن هو اللي يظبط الرصيد.</div>
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
@@ -4085,8 +4083,36 @@ function openWasteBatchModal(){
     await persist();
     closeModal(); renderTableRows('waste'); renderNav();
     showToast(`تم حفظ تقرير الهالك (${recs.length} صنف)`);
-    shareWasteReport(reportId);
+    setTimeout(()=>shareWasteReport(reportId),300);
   };
+}
+
+function wasteSectionHtml(R, S, q){
+  const recs=R.wasteRecs.filter(w=>!q||(w.item||'').toLowerCase().includes(q));
+  const title = S.from===S.to ? `هالك يوم ${fmtDateAr(S.from)}` : `هالك الفترة من ${fmtDateAr(S.from)} إلى ${fmtDateAr(S.to)}`;
+  if(!recs.length) return `<div class="panel"><div class="panel-head"><h2>${title}</h2></div><div class="panel-body"><div class="empty-state">مفيش هالك متسجل على ${esc(whLabel(S.wh))} في الفترة دي</div></div></div>`;
+  const byItem={}; recs.forEach(w=>{ const k=(w.item||'—').trim(); byItem[k]=(byItem[k]||0)+(Number(w.qty)||0); });
+  const total=recs.reduce((a,w)=>a+(Number(w.qty)||0),0);
+  const multiDay = S.from!==S.to;
+  return `<div class="panel"><div class="panel-head"><h2>${title} — الإجمالي ${fmtNum(total)}</h2>
+    <button class="btn btn-sm btn-ghost" id="wrWasteWa">${svgIcon('print','sm')} تحميل الهالك PDF</button></div>
+    <div class="panel-body">
+    ${multiDay?`<div style="padding:12px 16px 4px;font-weight:800;color:var(--navy);font-size:13px;">إجمالي الهالك لكل صنف</div>
+    <div class="table-wrap"><table><thead><tr><th>الصنف</th><th>إجمالي الهالك</th></tr></thead><tbody>
+    ${Object.entries(byItem).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td style="font-weight:700">${esc(k)}</td><td class="num" style="color:var(--danger)">${fmtNum(v)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td style="font-weight:800">الإجمالي</td><td class="num" style="font-weight:800">${fmtNum(total)}</td></tr></tfoot></table></div>
+    <div style="padding:16px 16px 4px;font-weight:800;color:var(--navy);font-size:13px;">تفاصيل الهالك يوم بيوم</div>`:''}
+    <div class="table-wrap"><table><thead><tr><th>التاريخ</th><th>الصنف</th><th>الكمية</th><th>نوع الهالك</th><th>السبب</th></tr></thead><tbody>
+    ${recs.map(w=>`<tr><td>${fmtDateAr(w.date)}</td><td style="font-weight:700">${esc(w.item)}</td><td class="num" style="color:var(--danger)">${fmtNum(w.qty)}</td><td>${esc(w.wasteType)||'—'}</td><td class="muted">${esc(w.reason)||'—'}</td></tr>`).join('')}
+    </tbody></table></div></div></div>`;
+}
+function wastePeriodText(R,S){
+  const recs=R.wasteRecs; const total=recs.reduce((a,w)=>a+(Number(w.qty)||0),0);
+  let t=`*تقرير هالك — EgyGulf Foods*\n🏭 ${whLabel(S.wh)}\n📅 ${S.from===S.to?fmtDateAr(S.from):fmtDateAr(S.from)+' إلى '+fmtDateAr(S.to)}\n\n`;
+  if(S.from===S.to){ recs.forEach((w,i)=>{ t+=`${i+1}- ${w.item}: ${fmtNum(w.qty)}${w.wasteType?` (${w.wasteType})`:''}${w.reason?` — ${w.reason}`:''}\n`; }); }
+  else { const by={}; recs.forEach(w=>{ const k=(w.item||'—').trim(); by[k]=(by[k]||0)+(Number(w.qty)||0); });
+    Object.entries(by).sort((a,b)=>b[1]-a[1]).forEach(([k,v],i)=>{ t+=`${i+1}- ${k}: ${fmtNum(v)}\n`; }); }
+  return t+`\n*إجمالي الهالك: ${fmtNum(total)}*`;
 }
 
 /* ================= تقرير المخازن ================= */
@@ -4107,6 +4133,10 @@ function buildWhReport(whId, from, to){
   if(whId==='raw') arr = arr.filter(rawCatAllowed);
   const rows=[], log=[];
   const tot={opening:0,buy:0,add:0,out:0,waste:0,trIn:0,trOut:0,closing:0};
+  const wl=whLabel(whId);
+  const wasteRecs=(DB.waste||[]).filter(w=>w.warehouse===wl && (!from||(w.date||'')>=from) && (!to||(w.date||'')<=to));
+  const wasteByItem={};
+  wasteRecs.forEach(w=>{ const k=(w.item||'').trim(); wasteByItem[k]=(wasteByItem[k]||0)+(Number(w.qty)||0); });
   arr.forEach(it=>{
     const r={name:it.name, unit:it.unit||'', buy:0,add:0,out:0,waste:0,trIn:0,trOut:0, afterTo:0, afterFromNet:0};
     (it.history||[]).forEach(h=>{
@@ -4122,6 +4152,8 @@ function buildWhReport(whId, from, to){
     r.opening = Math.round(((Number(it.balance)||0) - r.afterFromNet)*100)/100;
     const moved = r.buy||r.add||r.out||r.waste||r.trIn||r.trOut;
     r.moved = !!moved;
+    r.waste = wasteByItem[it.name.trim()]||0;
+    if(r.waste) r.moved=true;
     rows.push(r);
     ['opening','buy','add','out','waste','trIn','trOut','closing'].forEach(k=>tot[k]+=r[k]);
   });
@@ -4137,7 +4169,9 @@ function buildWhReport(whId, from, to){
     });
   });
   log.sort((a,b)=>(b.ts||b.d).localeCompare(a.ts||a.d));
-  return {rows, log, tot, flows};
+  tot.waste = wasteRecs.reduce((a,w)=>a+(Number(w.qty)||0),0);
+  wasteRecs.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  return {rows, log, tot, flows, wasteRecs, wasteByItem};
 }
 const WR_KLABEL={buy:['شراء','pill-ok'],add:['إضافة','pill-ok'],out:['صرف','pill-danger'],trIn:['تحويل وارد','pill-navy'],trOut:['تحويل صادر','pill-warn'],waste:['هالك','pill-danger']};
 function renderWhReportTab(){
@@ -4159,6 +4193,8 @@ function renderWhReportTab(){
     <select class="filter-box" id="wrWh">${choices.map(w=>`<option value="${w.id}" ${w.id===S.wh?'selected':''}>${esc(w.label)}</option>`).join('')}</select>
     <button class="btn btn-sm ${S.from===todayISO()&&S.to===todayISO()?'btn-primary':'btn-ghost'}" id="wrToday">النهارده</button>
     <button class="btn btn-sm btn-ghost" id="wrYest">امبارح</button>
+    <button class="btn btn-sm btn-ghost" id="wrMonth">الشهر ده</button>
+    <button class="btn btn-sm btn-ghost" id="wrLastMonth">الشهر اللي فات</button>
     <button class="btn btn-sm btn-ghost" id="wrPrev">◀ يوم</button>
     <button class="btn btn-sm btn-ghost" id="wrNext">يوم ▶</button>
     <div class="date-range"><span>من</span><input type="date" id="wrFrom" value="${S.from}"><span>إلى</span><input type="date" id="wrTo" value="${S.to}"></div>
@@ -4177,7 +4213,9 @@ function renderWhReportTab(){
    ${card('رصيد آخر الفترة',T.closing,'','box')}
   </div>
   ${Object.keys(R.flows).length?`<div class="chart-card" style="margin-bottom:16px;"><h3>التحويلات في الفترة</h3><div style="display:flex;gap:10px;flex-wrap:wrap;">${Object.entries(R.flows).map(([k,v])=>`<span class="pill pill-navy" style="font-size:13px;padding:6px 14px;">${esc(k)}: ${fmtNum(v)}</span>`).join('')}</div></div>`:''}
-  ${(()=>{ const days={}; R.log.forEach(l=>{ const d=days[l.d]||(days[l.d]={buy:0,add:0,out:0,waste:0,trIn:0,trOut:0}); d[l.k]+=l.q; });
+  ${(()=>{ const days={}; const mk=k=>days[k]||(days[k]={buy:0,add:0,out:0,waste:0,trIn:0,trOut:0});
+    R.log.forEach(l=>{ if(l.k!=='waste') mk(l.d)[l.k]+=l.q; });
+    R.wasteRecs.forEach(w=>{ mk(w.date).waste+=Number(w.qty)||0; });
     const ks=Object.keys(days).sort().reverse(); if(ks.length<2) return '';
     return `<div class="panel"><div class="panel-head"><h2>ملخص يومي</h2></div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th>اليوم</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>هالك</th><th>تحويل وارد</th><th>تحويل صادر</th><th></th></tr></thead><tbody>
     ${ks.map(k=>{const d=days[k];return `<tr><td style="font-weight:700">${fmtDateAr(k)}</td><td class="num">${fmtNum(d.buy)}</td><td class="num">${fmtNum(d.add)}</td><td class="num">${fmtNum(d.out)}</td><td class="num">${fmtNum(d.waste)}</td><td class="num">${fmtNum(d.trIn)}</td><td class="num">${fmtNum(d.trOut)}</td><td><button class="btn btn-sm btn-ghost" data-wrday="${k}">تفاصيل اليوم</button></td></tr>`;}).join('')}
@@ -4187,6 +4225,7 @@ function renderWhReportTab(){
    ${rows.map(r=>`<tr><td style="font-weight:700">${esc(r.name)}${r.unit?` <span class="muted" style="font-size:11px">${esc(r.unit)}</span>`:''}</td><td class="num">${fmtNum(r.opening)}</td><td class="num" style="color:var(--ok)">${r.buy?fmtNum(r.buy):'—'}</td><td class="num" style="color:var(--ok)">${r.add?fmtNum(r.add):'—'}</td><td class="num" style="color:var(--danger)">${r.out?fmtNum(r.out):'—'}</td><td class="num" style="color:var(--danger)">${r.waste?fmtNum(r.waste):'—'}</td><td class="num">${r.trIn?fmtNum(r.trIn):'—'}</td><td class="num">${r.trOut?fmtNum(r.trOut):'—'}</td><td class="num">${fmtNum(r.closing)}</td></tr>`).join('')}
    </tbody></table></div>`:`<div class="empty-state">مفيش حركة على أصناف المخزن ده في الفترة دي</div>`}
   </div></div>
+  ${wasteSectionHtml(R, S, q)}
   <div class="panel"><div class="panel-head"><h2>سجل الحركات بالتفصيل (${log.length})</h2></div><div class="panel-body">
    ${log.length?`<div class="table-wrap" style="max-height:480px;overflow-y:auto;"><table><thead><tr><th>الوقت</th><th>الصنف</th><th>نوع الحركة</th><th>الكمية</th><th>البيان</th><th>بواسطة</th></tr></thead><tbody>
    ${log.map(l=>`<tr><td>${l.ts?fmtDateTimeAr(l.ts):fmtDateAr(l.d)}</td><td style="font-weight:700">${esc(l.item)}</td><td><span class="pill ${WR_KLABEL[l.k][1]}">${WR_KLABEL[l.k][0]}</span></td><td class="num">${fmtNum(l.q)}</td><td class="muted" style="white-space:normal;max-width:300px">${esc(l.notes)||'—'}</td><td>${esc(l.by)||'—'}</td></tr>`).join('')}
@@ -4200,8 +4239,13 @@ function renderWhReportTab(){
   document.getElementById('wrToday').onclick=()=>{S.from=S.to=todayISO();re();};
   document.getElementById('wrYest').onclick=()=>{S.from=S.to=todayISO();shift(-1);};
   document.getElementById('wrPrev').onclick=()=>shift(-1);
+  const ym=(y,m)=>{ const f=new Date(Date.UTC(y,m,1)), l=new Date(Date.UTC(y,m+1,0)); S.from=f.toISOString().slice(0,10); S.to=l.toISOString().slice(0,10); if(S.to>todayISO()) S.to=todayISO(); re(); };
+  document.getElementById('wrMonth').onclick=()=>{ const d=new Date(); ym(d.getFullYear(), d.getMonth()); };
+  document.getElementById('wrLastMonth').onclick=()=>{ const d=new Date(); ym(d.getFullYear(), d.getMonth()-1); };
   document.getElementById('wrNext').onclick=()=>shift(1);
   document.querySelectorAll('[data-wrday]').forEach(b=>b.onclick=()=>{S.from=S.to=b.dataset.wrday;re();});
+  const waB=document.getElementById('wrWasteWa');
+  if(waB) waB.onclick=()=>printWasteRecs(R.wasteRecs, `تقرير هالك — ${whLabel(S.wh)}`, S.from===S.to?fmtDateAr(S.from):`من ${fmtDateAr(S.from)} إلى ${fmtDateAr(S.to)}`);
   const sb=document.getElementById('wrSearch');
   sb.onchange=e=>{S.search=e.target.value;re();};
   document.getElementById('wrExport').onclick=()=>{
@@ -4209,6 +4253,7 @@ function renderWhReportTab(){
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.map(r=>({'الصنف':r.name,'أول الفترة':r.opening,'شراء':r.buy,'إضافة':r.add,'صرف':r.out,'هالك':r.waste,'تحويل وارد':r.trIn,'تحويل صادر':r.trOut,'آخر الفترة':r.closing}))),'ملخص');
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(log.map(l=>({'التاريخ':l.d,'الصنف':l.item,'نوع الحركة':WR_KLABEL[l.k][0],'الكمية':l.q,'البيان':l.notes,'بواسطة':l.by}))),'الحركات');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(R.wasteRecs.map(w=>({'التاريخ':w.date,'الصنف':w.item,'الكمية':w.qty,'نوع الهالك':w.wasteType||'','السبب':w.reason||''}))),'الهالك');
     XLSX.writeFile(wb,`تقرير-${whLabel(S.wh)}-${S.from}-${S.to}.xlsx`);
   };
   document.getElementById('wrPrint').onclick=()=>{
@@ -4216,6 +4261,9 @@ function renderWhReportTab(){
     <table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>هالك</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
     ${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${fmtNum(r.opening)}</td><td>${fmtNum(r.buy)}</td><td>${fmtNum(r.add)}</td><td>${fmtNum(r.out)}</td><td>${fmtNum(r.waste)}</td><td>${fmtNum(r.trIn)}</td><td>${fmtNum(r.trOut)}</td><td>${fmtNum(r.closing)}</td></tr>`).join('')}</tbody>
     <tfoot><tr><td>الإجمالي</td><td>${fmtNum(T.opening)}</td><td>${fmtNum(T.buy)}</td><td>${fmtNum(T.add)}</td><td>${fmtNum(T.out)}</td><td>${fmtNum(T.waste)}</td><td>${fmtNum(T.trIn)}</td><td>${fmtNum(T.trOut)}</td><td>${fmtNum(T.closing)}</td></tr></tfoot></table>
+    ${R.wasteRecs.length?`<div class="pr-title" style="margin-top:18px;">الهالك — الإجمالي ${fmtNum(T.waste)}</div>
+    <table><thead><tr><th>التاريخ</th><th>الصنف</th><th>الكمية</th><th>نوع الهالك</th><th>السبب</th></tr></thead><tbody>
+    ${R.wasteRecs.map(w=>`<tr><td>${fmtDateAr(w.date)}</td><td>${esc(w.item)}</td><td>${fmtNum(w.qty)}</td><td>${esc(w.wasteType)||'—'}</td><td>${esc(w.reason)||'—'}</td></tr>`).join('')}</tbody></table>`:''}
     <div class="pr-foot">EgyGulf Foods — نظام إدارة المخازن والإنتاج</div>`;
     window.print();
   };
