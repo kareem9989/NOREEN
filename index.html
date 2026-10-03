@@ -675,11 +675,11 @@ let currentTab = 'dashboard';
 /* ================= AUTH (يوزرين: أدمن / أمين مخزن) ================= */
 const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
-const WAREHOUSE_TABS = ['raw','whManufacturing','purchaseRequests','transfers']; // أمين مخزن الخامات
+const WAREHOUSE_TABS = ['raw','whManufacturing','purchaseRequests','transfers','whReport']; // أمين مخزن الخامات
 const ROLE_TABS = { // كل مخزن ليه أمين لوحده
-  whman:  ['whManufacturing','raw','transfers','purchaseRequests'],
-  whpack: ['whPackaging','raw','transfers','purchaseRequests'],
-  whfin:  ['whFinished','transfers'],
+  whman:  ['whManufacturing','raw','transfers','purchaseRequests','whReport'],
+  whpack: ['whPackaging','raw','transfers','purchaseRequests','whReport'],
+  whfin:  ['whFinished','transfers','whReport'],
 };
 // تابات بيشوفها الدور من غير ما يعدّل فيها (لا إضافة ولا صرف ولا تعديل ولا حذف)
 const ROLE_READONLY = { whman:['raw'], whpack:['raw'] };
@@ -691,7 +691,7 @@ function isReadOnlyTab(tabId){ return !!(currentUser && ROLE_READONLY[currentUse
 function allowedRawCats(){ return currentUser ? (ROLE_RAW_CATS[currentUser.role]||null) : null; }
 function rawCatAllowed(item){ const c = allowedRawCats(); return !c || c.includes((item.category||'').trim()); }
 const CAIRO_TABS = ['cairoRequests','fillingReports','productionReports'];
-const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','transfers','cairoRequests','fillingReports','productionReports'];
+const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','transfers','whReport','cairoRequests','fillingReports','productionReports'];
 function isTabAllowed(tabId){
   if(!currentUser) return false;
   if(currentUser.role==='admin') return true;
@@ -1231,6 +1231,7 @@ const TABS = [
   {id:'whPackaging', label:'مخزن التعبئة والتغليف', ic:'box'},
   {id:'whFinished', label:'مخزن الإنتاج التام', ic:'spark'},
   {id:'transfers', label:'التحويلات المخزنية', ic:'history'},
+  {id:'whReport', label:'تقرير المخازن', ic:'card'},
   {id:'suppliers', label:'الموردين', ic:'suppliers'},
   {id:'itemCard', label:'كارتة الصنف', ic:'card'},
   {id:'customerOrders', label:'أوردرات العملاء', ic:'orders'},
@@ -1250,6 +1251,7 @@ const TITLES = {
   whManufacturing:['مخزن التصنيع','أرصدة الأصناف نصف المصنّعة داخل مرحلة التصنيع'],
   whPackaging:['مخزن التعبئة والتغليف','أرصدة الأصناف بعد مرحلة التعبئة والتغليف'],
   whFinished:['مخزن الإنتاج التام','أرصدة المنتج النهائي الجاهز'],
+  whReport:['تقرير المخازن','كل مخزن: ضاف كام، صرف كام، اتحوّل منه وليه كام، ورصيده أول وآخر الفترة'],
   transfers:['التحويلات المخزنية','تسجيل كل تحويل بين المخازن بدل الورق: من مخزن إلى مخزن'],
   suppliers:['الموردين','بيانات التواصل والأسعار لكل مورد'],
   itemCard:['كارتة الصنف','رصيد افتتاحي، إضافة، صرف، ورصيد نهائي لأي صنف في أي مخزن'],
@@ -3915,6 +3917,136 @@ function openTransferModal(prefill, editId){
   document.getElementById('saveBtn').addEventListener('click', ()=>save(false));
 }
 
+/* ================= تقرير المخازن ================= */
+let whReportState = {wh:null, from:'', to:'', search:''};
+function histDay(h){ return (h.ts||h.date||'').slice(0,10); }
+function classifyHist(h, trIds){
+  const isIn = h.type==='اضافه'||h.type==='شراء';
+  const isTr = (h.refId && trIds.has(h.refId)) || /تحويل|مرتجع لـ|راجع تلقائي|إرجاع/.test(h.notes||'');
+  if(isTr) return isIn?'trIn':'trOut';
+  if(h.type==='شراء') return 'buy';
+  if(isIn) return 'add';
+  return 'out';
+}
+function buildWhReport(whId, from, to){
+  const trIds = new Set(DB.transfers.map(t=>t.id));
+  let arr = whArray(whId);
+  if(whId==='raw') arr = arr.filter(rawCatAllowed);
+  const rows=[], log=[];
+  const tot={opening:0,buy:0,add:0,out:0,trIn:0,trOut:0,closing:0};
+  arr.forEach(it=>{
+    const r={name:it.name, unit:it.unit||'', buy:0,add:0,out:0,trIn:0,trOut:0, afterTo:0, afterFromNet:0};
+    (it.history||[]).forEach(h=>{
+      const d=histDay(h), q=Number(h.qty)||0, k=classifyHist(h,trIds);
+      const sign=(k==='buy'||k==='add'||k==='trIn')?1:-1;
+      if(from && d<from) return;
+      r.afterFromNet += sign*q;
+      if(to && d>to){ r.afterTo += sign*q; return; }
+      r[k]+=q;
+      log.push({d, ts:h.ts, item:it.name, k, q, notes:h.notes||'', by:h.by||''});
+    });
+    r.closing = Math.round(((Number(it.balance)||0) - r.afterTo)*100)/100;
+    r.opening = Math.round(((Number(it.balance)||0) - r.afterFromNet)*100)/100;
+    const moved = r.buy||r.add||r.out||r.trIn||r.trOut;
+    r.moved = !!moved;
+    rows.push(r);
+    ['opening','buy','add','out','trIn','trOut','closing'].forEach(k=>tot[k]+=r[k]);
+  });
+  // التحويلات حسب المخزن التاني
+  const flows={};
+  DB.transfers.forEach(t=>{
+    const st=trStatus(t); if(st==='draft'||st==='rejected') return;
+    const d=(t.sentAt||t.date||'').slice(0,10);
+    if((from&&d<from)||(to&&d>to)) return;
+    trLines(t).forEach(ln=>{
+      if(t.fromWarehouse===whId){ const k='إلى '+whLabel(t.toWarehouse); flows[k]=(flows[k]||0)+Number(ln.fromQty||0); }
+      if(t.toWarehouse===whId && st==='received'){ const k='من '+whLabel(t.fromWarehouse); flows[k]=(flows[k]||0)+Number(ln.toQty||0); }
+    });
+  });
+  log.sort((a,b)=>(b.ts||b.d).localeCompare(a.ts||a.d));
+  return {rows, log, tot, flows};
+}
+const WR_KLABEL={buy:['شراء','pill-ok'],add:['إضافة','pill-ok'],out:['صرف','pill-danger'],trIn:['تحويل وارد','pill-navy'],trOut:['تحويل صادر','pill-warn']};
+function renderWhReportTab(){
+  const mine=myWarehouse();
+  const choices = isAllWhUser()? WH_DEFS : WH_DEFS.filter(w=>w.id===mine);
+  if(!choices.length){ document.getElementById('content').innerHTML='<div class="empty-state">مفيش مخزن مرتبط بحسابك</div>'; return; }
+  if(!whReportState.wh || !choices.some(c=>c.id===whReportState.wh)) whReportState.wh=choices[0].id;
+  if(!whReportState.from) whReportState.from=todayISO();
+  if(!whReportState.to) whReportState.to=todayISO();
+  const S=whReportState, R=buildWhReport(S.wh,S.from,S.to);
+  const q=S.search.trim().toLowerCase();
+  const rows=R.rows.filter(r=>r.moved && (!q||r.name.toLowerCase().includes(q))).sort((a,b)=>a.name.localeCompare(b,'ar'));
+  const log=R.log.filter(l=>!q||l.item.toLowerCase().includes(q));
+  const card=(lbl,v,cls,ic)=>`<div class="stat-card"><div class="icon-wrap ${cls}">${svgIcon(ic)}</div><div class="label">${lbl}</div><div class="value">${fmtNum(v)}</div></div>`;
+  const T=R.tot;
+  document.getElementById('content').innerHTML=`<div class="content-fade">
+  <div class="panel"><div class="panel-head"><h2>تقرير ${esc(whLabel(S.wh))} — ${S.from===S.to?'يوم '+fmtDateAr(S.from):fmtDateAr(S.from)+' إلى '+fmtDateAr(S.to)}</h2>
+   <div class="toolbar">
+    <select class="filter-box" id="wrWh">${choices.map(w=>`<option value="${w.id}" ${w.id===S.wh?'selected':''}>${esc(w.label)}</option>`).join('')}</select>
+    <button class="btn btn-sm ${S.from===todayISO()&&S.to===todayISO()?'btn-primary':'btn-ghost'}" id="wrToday">النهارده</button>
+    <button class="btn btn-sm btn-ghost" id="wrYest">امبارح</button>
+    <button class="btn btn-sm btn-ghost" id="wrPrev">◀ يوم</button>
+    <button class="btn btn-sm btn-ghost" id="wrNext">يوم ▶</button>
+    <div class="date-range"><span>من</span><input type="date" id="wrFrom" value="${S.from}"><span>إلى</span><input type="date" id="wrTo" value="${S.to}"></div>
+    <input class="search-box" id="wrSearch" placeholder="بحث بالصنف..." value="${esc(S.search)}">
+    <button class="btn btn-ghost" id="wrExport">${svgIcon('download','sm')} تصدير Excel</button>
+    <button class="btn btn-ghost" id="wrPrint">${svgIcon('print','sm')} طباعة</button>
+   </div></div></div>
+  <div class="cards-grid">
+   ${card('رصيد أول الفترة',T.opening,'','box')}
+   ${card('مشتريات',T.buy,'ok','download')}
+   ${card('إضافة',T.add,'ok','spark')}
+   ${card('صرف',T.out,'danger','waste')}
+   ${card('تحويل وارد (استلام)',T.trIn,'','history')}
+   ${card('تحويل صادر',T.trOut,'gold','history')}
+   ${card('رصيد آخر الفترة',T.closing,'','box')}
+  </div>
+  ${Object.keys(R.flows).length?`<div class="chart-card" style="margin-bottom:16px;"><h3>التحويلات في الفترة</h3><div style="display:flex;gap:10px;flex-wrap:wrap;">${Object.entries(R.flows).map(([k,v])=>`<span class="pill pill-navy" style="font-size:13px;padding:6px 14px;">${esc(k)}: ${fmtNum(v)}</span>`).join('')}</div></div>`:''}
+  ${(()=>{ const days={}; R.log.forEach(l=>{ const d=days[l.d]||(days[l.d]={buy:0,add:0,out:0,trIn:0,trOut:0}); d[l.k]+=l.q; });
+    const ks=Object.keys(days).sort().reverse(); if(ks.length<2) return '';
+    return `<div class="panel"><div class="panel-head"><h2>ملخص يومي</h2></div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th>اليوم</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>تحويل وارد</th><th>تحويل صادر</th><th></th></tr></thead><tbody>
+    ${ks.map(k=>{const d=days[k];return `<tr><td style="font-weight:700">${fmtDateAr(k)}</td><td class="num">${fmtNum(d.buy)}</td><td class="num">${fmtNum(d.add)}</td><td class="num">${fmtNum(d.out)}</td><td class="num">${fmtNum(d.trIn)}</td><td class="num">${fmtNum(d.trOut)}</td><td><button class="btn btn-sm btn-ghost" data-wrday="${k}">تفاصيل اليوم</button></td></tr>`;}).join('')}
+    </tbody></table></div></div></div>`; })()}
+  <div class="panel"><div class="panel-head"><h2>حركة الأصناف (${rows.length})</h2></div><div class="panel-body">
+   ${rows.length?`<div class="table-wrap"><table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
+   ${rows.map(r=>`<tr><td style="font-weight:700">${esc(r.name)}${r.unit?` <span class="muted" style="font-size:11px">${esc(r.unit)}</span>`:''}</td><td class="num">${fmtNum(r.opening)}</td><td class="num" style="color:var(--ok)">${r.buy?fmtNum(r.buy):'—'}</td><td class="num" style="color:var(--ok)">${r.add?fmtNum(r.add):'—'}</td><td class="num" style="color:var(--danger)">${r.out?fmtNum(r.out):'—'}</td><td class="num">${r.trIn?fmtNum(r.trIn):'—'}</td><td class="num">${r.trOut?fmtNum(r.trOut):'—'}</td><td class="num">${fmtNum(r.closing)}</td></tr>`).join('')}
+   </tbody></table></div>`:`<div class="empty-state">مفيش حركة على أصناف المخزن ده في الفترة دي</div>`}
+  </div></div>
+  <div class="panel"><div class="panel-head"><h2>سجل الحركات بالتفصيل (${log.length})</h2></div><div class="panel-body">
+   ${log.length?`<div class="table-wrap" style="max-height:480px;overflow-y:auto;"><table><thead><tr><th>الوقت</th><th>الصنف</th><th>نوع الحركة</th><th>الكمية</th><th>البيان</th><th>بواسطة</th></tr></thead><tbody>
+   ${log.map(l=>`<tr><td>${l.ts?fmtDateTimeAr(l.ts):fmtDateAr(l.d)}</td><td style="font-weight:700">${esc(l.item)}</td><td><span class="pill ${WR_KLABEL[l.k][1]}">${WR_KLABEL[l.k][0]}</span></td><td class="num">${fmtNum(l.q)}</td><td class="muted" style="white-space:normal;max-width:300px">${esc(l.notes)||'—'}</td><td>${esc(l.by)||'—'}</td></tr>`).join('')}
+   </tbody></table></div>`:`<div class="empty-state">لا يوجد حركات</div>`}
+  </div></div></div>`;
+  const re=()=>renderWhReportTab();
+  document.getElementById('wrWh').onchange=e=>{S.wh=e.target.value;re();};
+  document.getElementById('wrFrom').onchange=e=>{S.from=e.target.value;re();};
+  document.getElementById('wrTo').onchange=e=>{S.to=e.target.value;re();};
+  const shift=(n)=>{ const d=new Date((S.from===S.to?S.from:S.to)+'T12:00:00'); d.setDate(d.getDate()+n); S.from=S.to=d.toISOString().slice(0,10); re(); };
+  document.getElementById('wrToday').onclick=()=>{S.from=S.to=todayISO();re();};
+  document.getElementById('wrYest').onclick=()=>{S.from=S.to=todayISO();shift(-1);};
+  document.getElementById('wrPrev').onclick=()=>shift(-1);
+  document.getElementById('wrNext').onclick=()=>shift(1);
+  document.querySelectorAll('[data-wrday]').forEach(b=>b.onclick=()=>{S.from=S.to=b.dataset.wrday;re();});
+  const sb=document.getElementById('wrSearch');
+  sb.onchange=e=>{S.search=e.target.value;re();};
+  document.getElementById('wrExport').onclick=()=>{
+    if(!window.XLSX){showToast('مكتبة Excel مش متاحة');return;}
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows.map(r=>({'الصنف':r.name,'أول الفترة':r.opening,'شراء':r.buy,'إضافة':r.add,'صرف':r.out,'تحويل وارد':r.trIn,'تحويل صادر':r.trOut,'آخر الفترة':r.closing}))),'ملخص');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(log.map(l=>({'التاريخ':l.d,'الصنف':l.item,'نوع الحركة':WR_KLABEL[l.k][0],'الكمية':l.q,'البيان':l.notes,'بواسطة':l.by}))),'الحركات');
+    XLSX.writeFile(wb,`تقرير-${whLabel(S.wh)}-${S.from}-${S.to}.xlsx`);
+  };
+  document.getElementById('wrPrint').onclick=()=>{
+    document.getElementById('printArea').innerHTML=`<div class="pr-header"><div><div class="pr-brand">egy<span>gulf</span> Foods</div><div class="pr-title">تقرير ${esc(whLabel(S.wh))}</div></div><div class="pr-meta">من ${fmtDateAr(S.from)} إلى ${fmtDateAr(S.to)}</div></div>
+    <table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${fmtNum(r.opening)}</td><td>${fmtNum(r.buy)}</td><td>${fmtNum(r.add)}</td><td>${fmtNum(r.out)}</td><td>${fmtNum(r.trIn)}</td><td>${fmtNum(r.trOut)}</td><td>${fmtNum(r.closing)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>الإجمالي</td><td>${fmtNum(T.opening)}</td><td>${fmtNum(T.buy)}</td><td>${fmtNum(T.add)}</td><td>${fmtNum(T.out)}</td><td>${fmtNum(T.trIn)}</td><td>${fmtNum(T.trOut)}</td><td>${fmtNum(T.closing)}</td></tr></tfoot></table>
+    <div class="pr-foot">EgyGulf Foods — نظام إدارة المخازن والإنتاج</div>`;
+    window.print();
+  };
+}
+
 /* ================= ROUTER ================= */
 function renderContent(){
   tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
@@ -3924,6 +4056,7 @@ function renderContent(){
   else if(currentTab==='cairoRequests') renderCairoRequestsTab();
   else if(currentTab==='purchases') renderPurchasesTab();
   else if(currentTab==='transfers') renderTransfersTab();
+  else if(currentTab==='whReport') renderWhReportTab();
   else if(currentTab==='customerOrders') renderExternalOrdersTab();
   else if(currentTab==='auditLog') renderAuditLogTab();
   else renderGenericTab(currentTab);
