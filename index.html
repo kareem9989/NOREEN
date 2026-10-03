@@ -4272,6 +4272,12 @@ function renderWhReportTab(){
     <table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>هالك</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
     ${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${fmtNum(r.opening)}</td><td>${fmtNum(r.buy)}</td><td>${fmtNum(r.add)}</td><td>${fmtNum(r.out)}</td><td>${fmtNum(r.waste)}</td><td>${fmtNum(r.trIn)}</td><td>${fmtNum(r.trOut)}</td><td>${fmtNum(r.closing)}</td></tr>`).join('')}</tbody>
     <tfoot><tr><td>الإجمالي</td><td>—</td><td>${fmtNum(T.buy)}</td><td>${fmtNum(T.add)}</td><td>${fmtNum(T.out)}</td><td>${fmtNum(T.waste)}</td><td>${fmtNum(T.trIn)}</td><td>${fmtNum(T.trOut)}</td><td>—</td></tr></tfoot></table>
+    ${[['add','تفاصيل الإضافة'],['buy','تفاصيل المشتريات'],['out','تفاصيل الصرف'],['trIn','تفاصيل التحويل الوارد'],['trOut','تفاصيل التحويل الصادر']].map(([k,t])=>{
+      const L=log.filter(l=>l.k===k); if(!L.length) return '';
+      return `<div class="pr-title" style="margin-top:18px;">${t} — الإجمالي ${fmtNum(L.reduce((a,l)=>a+l.q,0))}</div>
+      <table><thead><tr><th>الوقت</th><th>الصنف</th><th>الكمية</th><th>البيان</th><th>بواسطة</th></tr></thead><tbody>
+      ${L.map(l=>`<tr><td>${l.ts?fmtDateTimeAr(l.ts):fmtDateAr(l.d)}</td><td>${esc(l.item)}</td><td>${fmtNum(l.q)}</td><td>${esc(l.notes)||'—'}</td><td>${esc(l.by)||'—'}</td></tr>`).join('')}</tbody></table>`;
+    }).join('')}
     ${R.wasteRecs.length?`<div class="pr-title" style="margin-top:18px;">الهالك — الإجمالي ${fmtNum(T.waste)}</div>
     <table><thead><tr><th>التاريخ</th><th>الصنف</th><th>الكمية</th><th>نوع الهالك</th><th>السبب</th></tr></thead><tbody>
     ${R.wasteRecs.map(w=>`<tr><td>${fmtDateAr(w.date)}</td><td>${esc(w.item)}</td><td>${fmtNum(w.qty)}</td><td>${esc(w.wasteType)||'—'}</td><td>${esc(w.reason)||'—'}</td></tr>`).join('')}</tbody></table>`:''}
