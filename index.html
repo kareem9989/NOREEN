@@ -4118,7 +4118,7 @@ function wastePeriodText(R,S){
 
 function trDetailTable(L, forPrint){
   return `<table><thead><tr><th>الوقت</th><th>الاتجاه</th><th>المخزن التاني</th><th>الصنف</th><th>الكمية</th><th>اتحوّل لـ / جه من</th><th>الحالة</th><th>أرسل</th><th>استلم</th></tr></thead><tbody>
-  ${L.map(x=>`<tr><td>${x.ts?fmtDateTimeAr(x.ts):'—'}</td><td>${forPrint?(x.dir==='in'?'وارد':'صادر'):`<span class="pill ${x.dir==='in'?'pill-navy':'pill-warn'}">${x.dir==='in'?'وارد':'صادر'}</span>`}</td><td>${esc(x.other)}</td><td style="font-weight:700">${esc(x.item)}</td><td class="num" style="font-weight:800">${fmtNum(x.qty)}</td><td class="muted">${x.toItem?`${esc(x.toItem)} (${fmtNum(x.toQty)})`:'—'}</td><td>${esc(x.status)}</td><td>${esc(byName(x.by))||'—'}</td><td>${esc(byName(x.rec))||'—'}</td></tr>`).join('')}
+  ${L.map(x=>`<tr><td>${x.ts?fmtDateTimeAr(x.ts):'—'}</td><td>${forPrint?(x.dir==='in'?'وارد':x.dir==='pend'?'في الطريق':'صادر'):`<span class="pill ${x.dir==='in'?'pill-navy':x.dir==='pend'?'pill-danger':'pill-warn'}">${x.dir==='in'?'وارد':x.dir==='pend'?'جاي (في الطريق)':'صادر'}</span>`}</td><td>${esc(x.other)}</td><td style="font-weight:700">${esc(x.item)}</td><td class="num" style="font-weight:800">${fmtNum(x.qty)}</td><td class="muted">${x.toItem?`${esc(x.toItem)} (${fmtNum(x.toQty)})`:'—'}</td><td>${esc(x.status)}</td><td>${esc(byName(x.by))||'—'}</td><td>${esc(byName(x.rec))||'—'}</td></tr>`).join('')}
   </tbody></table>`;
 }
 function trDetailHtml(R, q){
@@ -4160,7 +4160,7 @@ function buildWhReport(whId, from, to){
       r.afterFromNet += sign*q;
       if(to && d>to){ r.afterTo += sign*q; return; }
       r[k]+=q;
-      log.push({d, ts:h.ts, item:it.name, k, q, notes:h.notes||'', by:h.by||''});
+      log.push({d, ts:h.ts, item:it.name, k, q, notes:h.notes||'', by:h.by||'', refId:h.refId||''});
     });
     r.closing = Math.round(((Number(it.balance)||0) - r.afterTo)*100)/100;
     r.opening = Math.round(((Number(it.balance)||0) - r.afterFromNet)*100)/100;
@@ -4176,20 +4176,31 @@ function buildWhReport(whId, from, to){
   const ST={pending:'في الطريق (لسه ماتستلمش)',received:'تم الاستلام'};
   DB.transfers.forEach(t=>{
     const st=trStatus(t); if(st==='draft'||st==='rejected') return;
-    const d=(t.sentAt||t.date||'').slice(0,10);
-    if((from&&d<from)||(to&&d>to)) return;
+    const inR=(x)=>{ const d=String(x||'').slice(0,10); return d && !((from&&d<from)||(to&&d>to)); };
+    const sentOk=inR(t.sentAt||t.date), recOk=inR(t.receivedAt||t.sentAt||t.date);
     trLines(t).forEach(ln=>{
-      if(t.fromWarehouse===whId){ const k='إلى '+whLabel(t.toWarehouse); const q=Number(ln.fromQty||0); flows[k]=(flows[k]||0)+q;
+      if(t.toWarehouse===whId && st==='pending' && sentOk){
+        trRows.push({ts:t.sentAt||t.date, dir:'pend', other:whLabel(t.fromWarehouse), item:ln.fromItemName||'—', qty:Number(ln.fromQty||0), toItem:'', toQty:0, status:'في الطريق — لسه ماتستلمش', by:t.sentBy, rec:''});
+        return;
+      }
+      if(t.fromWarehouse===whId && sentOk){ const k='إلى '+whLabel(t.toWarehouse); const q=Number(ln.fromQty||0); flows[k]=(flows[k]||0)+q;
         trRows.push({ts:t.sentAt||t.date, dir:'out', other:whLabel(t.toWarehouse), item:ln.fromItemName||'—', qty:q, toItem:ln.toItemName||'', toQty:Number(ln.toQty||0), status:ST[st]||st, by:t.sentBy, rec:t.receivedBy}); }
-      if(t.toWarehouse===whId && st==='received'){ const k='من '+whLabel(t.fromWarehouse); const q=Number(ln.toQty||0); flows[k]=(flows[k]||0)+q;
+      if(t.toWarehouse===whId && st==='received' && recOk){ const k='من '+whLabel(t.fromWarehouse); const q=Number(ln.toQty||0); flows[k]=(flows[k]||0)+q;
         trRows.push({ts:t.receivedAt||t.sentAt||t.date, dir:'in', other:whLabel(t.fromWarehouse), item:ln.toItemName||'—', qty:q, toItem:ln.fromItemName||'', toQty:Number(ln.fromQty||0), status:ST[st], by:t.sentBy, rec:t.receivedBy}); }
     });
   });
   trRows.sort((a,b)=>String(b.ts||'').localeCompare(String(a.ts||'')));
   // التحويلات من سجل التحويلات نفسه (أدق من سجل الصنف)
   tot.trIn=0; tot.trOut=0; rows.forEach(r=>{ r.trIn=0; r.trOut=0; });
-  trRows.forEach(x=>{ if(x.dir==='in') tot.trIn+=x.qty; else tot.trOut+=x.qty;
+  // أي حركة تحويل في سجل الأصناف مش موجودة في سجل التحويلات (تحويلات قديمة/محذوفة)
+  const seen=new Set(DB.transfers.map(t=>t.id));
+  log.filter(l=>(l.k==='trIn'||l.k==='trOut') && !(l.refId && seen.has(l.refId))).forEach(l=>{
+    trRows.push({ts:l.ts||l.d, dir:l.k==='trIn'?'in':'out', other:'—', item:l.item, qty:l.q, toItem:'', toQty:0, status:l.notes||'', by:l.by, rec:''});
+  });
+  trRows.sort((a,b)=>String(b.ts||'').localeCompare(String(a.ts||'')));
+  trRows.forEach(x=>{ if(x.dir==='pend') return; if(x.dir==='in') tot.trIn+=x.qty; else tot.trOut+=x.qty;
     const r=rows.find(r=>r.name.trim()===x.item.trim()); if(r){ if(x.dir==='in') r.trIn+=x.qty; else r.trOut+=x.qty; r.moved=true; } });
+  trRows.forEach(x=>{ if(x.dir==='pend'){ const k='في الطريق من '+x.other; flows[k]=(flows[k]||0)+x.qty; } });
   log.sort((a,b)=>(b.ts||b.d).localeCompare(a.ts||a.d));
   tot.waste = wasteRecs.reduce((a,w)=>a+(Number(w.qty)||0),0);
   wasteRecs.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
