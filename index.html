@@ -4132,7 +4132,7 @@ function trDetailHtml(R, q){
 
 /* ================= تقرير حد الأمان ================= */
 function itemMin(it){ const v=it&&it.minQty; return (v!==undefined && v!==null && v!=='') ? Number(v) : Number(DB.settings.lowStockThreshold||0); }
-let lowState={wh:'all', showAll:false, search:''};
+let lowState={wh:'all', onlyLow:false, edit:false, search:''};
 function lowStockRows(whIds){
   const out=[];
   whIds.forEach(w=>{
@@ -4151,14 +4151,15 @@ function renderLowStockTab(){
   const ids = S.wh==='all' ? choices.map(c=>c.id) : [S.wh];
   const q=S.search.trim().toLowerCase();
   const all=lowStockRows(ids).filter(r=>!q||r.name.toLowerCase().includes(q));
-  const low=all.filter(r=>r.low), shown=S.showAll?all:low;
+  const low=all.filter(r=>r.low), shown=S.onlyLow?low:all;
   const outN=low.filter(r=>r.out).length;
   document.getElementById('content').innerHTML=`<div class="content-fade">
   <div class="panel"><div class="panel-head"><h2>تقرير حد الأمان</h2>
    <div class="toolbar">
     <select class="filter-box" id="lsWh">${isAllWhUser()?`<option value="all" ${S.wh==='all'?'selected':''}>كل المخازن</option>`:''}${choices.map(w=>`<option value="${w.id}" ${w.id===S.wh?'selected':''}>${esc(w.label)} — ${esc(w.keeper)}</option>`).join('')}</select>
     <input class="search-box" id="lsSearch" placeholder="بحث بالصنف..." value="${esc(S.search)}">
-    <button class="btn btn-sm ${S.showAll?'btn-primary':'btn-ghost'}" id="lsAll">${S.showAll?'عرض اللي تحت الحد بس':'تحديد حد أمان لكل صنف'}</button>
+    <button class="btn btn-sm ${S.onlyLow?'btn-primary':'btn-ghost'}" id="lsAll">${S.onlyLow?'عرض كل الأصناف':'اللي تحت الحد بس'}</button>
+    <button class="btn btn-sm ${S.edit?'btn-primary':'btn-ghost'}" id="lsEdit">${S.edit?'إلغاء التعديل':'تعديل حدود الأمان'}</button>
     <button class="btn btn-ghost" id="lsXls">${svgIcon('download','sm')} Excel</button>
     <button class="btn btn-ghost" id="lsPrint">${svgIcon('print','sm')} PDF</button>
    </div></div></div>
@@ -4167,12 +4168,12 @@ function renderLowStockTab(){
    <div class="stat-card"><div class="icon-wrap danger">${svgIcon('waste')}</div><div class="label">أصناف خلصت (رصيد صفر أو أقل)</div><div class="value">${outN}</div></div>
    <div class="stat-card"><div class="icon-wrap gold">${svgIcon('box')}</div><div class="label">حد الأمان الافتراضي</div><div class="value">${fmtNum(DB.settings.lowStockThreshold)}</div><div class="foot">لأي صنف مالوش حد خاص</div></div>
   </div>
-  <div class="panel"><div class="panel-head"><h2>${S.showAll?'كل الأصناف — اكتب حد الأمان لكل صنف واضغط حفظ':'الأصناف اللي تحت حد الأمان ('+low.length+')'}</h2>${S.showAll?`<button class="btn btn-primary btn-sm" id="lsSave">حفظ حدود الأمان</button>`:''}</div><div class="panel-body">
-  ${shown.length?`<div class="table-wrap"><table><thead><tr>${S.wh==='all'?'<th>المخزن</th>':''}<th>الصنف</th><th>الرصيد الحالي</th><th>حد الأمان</th><th>الناقص لحد الأمان</th><th>الحالة</th></tr></thead><tbody>
-  ${shown.map((r,i)=>`<tr>${S.wh==='all'?`<td><span class="pill pill-navy">${esc(whLabel(r.wh))}</span></td>`:''}
+  <div class="panel"><div class="panel-head"><h2>${S.edit?'اكتب حد الأمان لكل صنف واضغط حفظ':(S.onlyLow?'الأصناف اللي تحت حد الأمان ('+low.length+')':'كل الأصناف ('+all.length+') — منهم '+low.length+' تحت حد الأمان')}</h2>${S.edit?`<button class="btn btn-primary btn-sm" id="lsSave">حفظ حدود الأمان</button>`:''}</div><div class="panel-body">
+  ${shown.length?`<div class="table-wrap"><table><thead><tr><th>المخزن</th><th>الصنف</th><th>الرصيد الحالي</th><th>حد الأمان</th><th>الناقص لحد الأمان</th><th>الحالة</th></tr></thead><tbody>
+  ${shown.map((r,i)=>`<tr style="${r.low?'background:rgba(220,38,38,.06)':''}"><td><span class="pill pill-navy">${esc(whLabel(r.wh))}</span></td>
    <td style="font-weight:700">${esc(r.name)}${r.unit?` <span class="muted" style="font-size:11px">${esc(r.unit)}</span>`:''}</td>
    <td class="num" style="${r.low?'color:var(--danger);font-weight:800':''}">${fmtNum(r.bal)}</td>
-   <td>${S.showAll?`<input type="number" step="0.01" min="0" data-ls="${i}" value="${r.custom?r.min:''}" placeholder="${fmtNum(DB.settings.lowStockThreshold)}" style="width:100px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--ink);">`:`<span class="num">${fmtNum(r.min)}</span>${r.custom?'':' <span class="muted" style="font-size:11px">(افتراضي)</span>'}`}</td>
+   <td>${S.edit?`<input type="number" step="0.01" min="0" data-ls="${i}" value="${r.custom?r.min:''}" placeholder="${fmtNum(DB.settings.lowStockThreshold)}" style="width:100px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--ink);">`:`<span class="num">${fmtNum(r.min)}</span>${r.custom?'':' <span class="muted" style="font-size:11px">(افتراضي)</span>'}`}</td>
    <td class="num">${r.short?fmtNum(r.short):'—'}</td>
    <td>${r.out?'<span class="pill pill-danger">خلص</span>':r.low?'<span class="pill pill-warn">تحت الحد</span>':'<span class="pill pill-ok">تمام</span>'}</td></tr>`).join('')}
   </tbody></table></div>`:`<div class="empty-state"><div class="big">✓</div>كل الأصناف فوق حد الأمان</div>`}
@@ -4180,7 +4181,8 @@ function renderLowStockTab(){
   const re=()=>renderLowStockTab();
   document.getElementById('lsWh').onchange=e=>{S.wh=e.target.value;re();};
   document.getElementById('lsSearch').onchange=e=>{S.search=e.target.value;re();};
-  document.getElementById('lsAll').onclick=()=>{S.showAll=!S.showAll;re();};
+  document.getElementById('lsAll').onclick=()=>{S.onlyLow=!S.onlyLow;re();};
+  document.getElementById('lsEdit').onclick=()=>{S.edit=!S.edit;re();};
   const sv=document.getElementById('lsSave');
   if(sv) sv.onclick=async ()=>{
     let n=0;
@@ -4193,7 +4195,7 @@ function renderLowStockTab(){
     });
     if(!n){ showToast('مفيش تغيير'); return; }
     logAction(`عدّل حد الأمان لـ ${n} صنف`);
-    await persist(); renderNav(); re(); showToast(`تم حفظ حد الأمان لـ ${n} صنف`);
+    S.edit=false; await persist(); renderNav(); re(); showToast(`تم حفظ حد الأمان لـ ${n} صنف`);
   };
   document.getElementById('lsXls').onclick=()=>{
     if(!window.XLSX){showToast('مكتبة Excel مش متاحة');return;}
