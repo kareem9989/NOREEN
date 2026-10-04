@@ -263,9 +263,10 @@ tr.detail-row.dim td{color:var(--ink-soft);}
 #printArea .pr-brand span{color:#FEB913;}
 #printArea .pr-title{font-size:15px;font-weight:700;color:#1E1D3D;margin-top:4px;}
 #printArea .pr-meta{text-align:left;font-size:11.5px;color:#6B698F;line-height:1.6;}
-#printArea table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;}
-#printArea th{background:#EDECFA;color:#2D2B74;padding:8px 10px;text-align:right;border:1px solid #E6E5F2;font-weight:700;}
-#printArea td{padding:7px 10px;border:1px solid #E6E5F2;text-align:right;}
+#printArea table{width:100%;max-width:100%;border-collapse:collapse;font-size:10.5px;margin-top:6px;table-layout:auto;}
+#printArea td,#printArea th{word-break:break-word;white-space:normal !important;}
+#printArea th{background:#EDECFA;color:#2D2B74;padding:6px 6px;text-align:right;border:1px solid #E6E5F2;font-weight:700;}
+#printArea td{padding:5px 6px;border:1px solid #E6E5F2;text-align:right;}
 #printArea tfoot td{font-weight:800;background:#FFF3D6;}
 #printArea .pr-groupline td{background:#F5F5FB;font-weight:800;color:#2D2B74;}
 #printArea .pr-foot{margin-top:18px;font-size:10.5px;color:#9B98BE;text-align:center;}
@@ -4283,7 +4284,10 @@ function buildWhReport(whId, from, to){
   });
   trRows.sort((a,b)=>String(b.ts||'').localeCompare(String(a.ts||'')));
   trRows.forEach(x=>{ if(x.dir==='pend') return; if(x.dir==='in') tot.trIn+=x.qty; else tot.trOut+=x.qty;
-    const r=rows.find(r=>r.name.trim()===x.item.trim()); if(r){ if(x.dir==='in') r.trIn+=x.qty; else r.trOut+=x.qty; r.moved=true; } });
+    if(x.dir==='pend') return;
+    let r=rows.find(r=>r.name.trim()===x.item.trim());
+    if(!r){ r={name:x.item, unit:'', buy:0,add:0,out:0,waste:0,trIn:0,trOut:0, opening:null, closing:null, ghost:true}; rows.push(r); }
+    if(x.dir==='in') r.trIn+=x.qty; else r.trOut+=x.qty; r.moved=true; });
   trRows.forEach(x=>{ if(x.dir==='pend'){ const k='في الطريق من '+x.other; flows[k]=(flows[k]||0)+x.qty; } });
   log.sort((a,b)=>(b.ts||b.d).localeCompare(a.ts||a.d));
   tot.waste = wasteRecs.reduce((a,w)=>a+(Number(w.qty)||0),0);
@@ -4349,7 +4353,7 @@ function renderWhReportTab(){
   })()}
   <div class="panel"><div class="panel-head"><h2>ملخص الأصناف (${rows.length})</h2></div><div class="panel-body">
    ${rows.length?`<div class="table-wrap"><table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>هالك</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
-   ${rows.map(r=>`<tr><td style="font-weight:700">${esc(r.name)}${r.unit?` <span class="muted" style="font-size:11px">${esc(r.unit)}</span>`:''}</td><td class="num">${fmtNum(r.opening)}</td><td class="num" style="color:var(--ok)">${r.buy?fmtNum(r.buy):'—'}</td><td class="num" style="color:var(--ok)">${r.add?fmtNum(r.add):'—'}</td><td class="num" style="color:var(--danger)">${r.out?fmtNum(r.out):'—'}</td><td class="num" style="color:var(--danger)">${r.waste?fmtNum(r.waste):'—'}</td><td class="num">${r.trIn?fmtNum(r.trIn):'—'}</td><td class="num">${r.trOut?fmtNum(r.trOut):'—'}</td><td class="num">${fmtNum(r.closing)}</td></tr>`).join('')}
+   ${rows.map(r=>`<tr><td style="font-weight:700">${esc(r.name)}${r.unit?` <span class="muted" style="font-size:11px">${esc(r.unit)}</span>`:''}</td><td class="num">${r.ghost?'—':fmtNum(r.opening)}</td><td class="num" style="color:var(--ok)">${r.buy?fmtNum(r.buy):'—'}</td><td class="num" style="color:var(--ok)">${r.add?fmtNum(r.add):'—'}</td><td class="num" style="color:var(--danger)">${r.out?fmtNum(r.out):'—'}</td><td class="num" style="color:var(--danger)">${r.waste?fmtNum(r.waste):'—'}</td><td class="num">${r.trIn?fmtNum(r.trIn):'—'}</td><td class="num">${r.trOut?fmtNum(r.trOut):'—'}</td><td class="num">${r.ghost?'—':fmtNum(r.closing)}</td></tr>`).join('')}
    </tbody></table></div>`:`<div class="empty-state">مفيش حركة على أصناف المخزن ده في الفترة دي</div>`}
   </div></div>
   <div id="wrsec_waste">${wasteSectionHtml(R, S, q)}</div>
@@ -4386,7 +4390,7 @@ function renderWhReportTab(){
   document.getElementById('wrPrint').onclick=()=>{
     document.getElementById('printArea').innerHTML=`<div class="pr-header"><div><div class="pr-brand">egy<span>gulf</span> Foods</div><div class="pr-title">تقرير ${esc(whLabel(S.wh))}</div></div><div class="pr-meta">من ${fmtDateAr(S.from)} إلى ${fmtDateAr(S.to)}<br>أمين المخزن: ${esc(whKeeper(S.wh))}</div></div>
     <table><thead><tr><th>الصنف</th><th>أول الفترة</th><th>شراء</th><th>إضافة</th><th>صرف</th><th>هالك</th><th>تحويل وارد</th><th>تحويل صادر</th><th>آخر الفترة</th></tr></thead><tbody>
-    ${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${fmtNum(r.opening)}</td><td>${fmtNum(r.buy)}</td><td>${fmtNum(r.add)}</td><td>${fmtNum(r.out)}</td><td>${fmtNum(r.waste)}</td><td>${fmtNum(r.trIn)}</td><td>${fmtNum(r.trOut)}</td><td>${fmtNum(r.closing)}</td></tr>`).join('')}</tbody>
+    ${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.ghost?'—':fmtNum(r.opening)}</td><td>${fmtNum(r.buy)}</td><td>${fmtNum(r.add)}</td><td>${fmtNum(r.out)}</td><td>${fmtNum(r.waste)}</td><td>${fmtNum(r.trIn)}</td><td>${fmtNum(r.trOut)}</td><td>${r.ghost?'—':fmtNum(r.closing)}</td></tr>`).join('')}</tbody>
     <tfoot><tr><td>الإجمالي</td><td>—</td><td>${fmtNum(T.buy)}</td><td>${fmtNum(T.add)}</td><td>${fmtNum(T.out)}</td><td>${fmtNum(T.waste)}</td><td>${fmtNum(T.trIn)}</td><td>${fmtNum(T.trOut)}</td><td>—</td></tr></tfoot></table>
     ${[['add','تفاصيل الإضافة'],['buy','تفاصيل المشتريات'],['out','تفاصيل الصرف'],].map(([k,t])=>{
       const L=log.filter(l=>l.k===k); if(!L.length) return '';
