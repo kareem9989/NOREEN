@@ -604,7 +604,7 @@ tr.detail-row.dim td{color:var(--ink-soft);}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 6-10 — v8</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 6-10 — v9</span></div>
   </aside>
 
   <div class="main">
@@ -952,16 +952,7 @@ function applyDBDefaultsAndMigrations(){
         }
       });
       if(!DB.purchases) DB.purchases = [];
-      // تصفير المخازن مرة واحدة وتحميل رصيد الجرد الجديد (شيت الجرد — عمود الرصيد)
-      if(!DB.settings.inventoryResetV1){
-        DB.raw = invSeedItems();
-        DB.whManufacturing = [];
-        DB.whPackaging = [];
-        DB.whFinished = [];
-        DB.transfers = [];
-        DB.settings.inventoryResetV1 = true;
-        DB.settings.inventoryResetV1At = new Date().toISOString();
-      }
+      // (تصفير المخازن وتحميل الجرد اتعمل مرة واحدة قبل كده — اتشال نهائيًا عشان مفيش أي داتا تتمسح تاني)
       if(!DB.purchaseRequests) DB.purchaseRequests = [];
       if(!DB.whManufacturing) DB.whManufacturing = [];
       if(!DB.whPackaging) DB.whPackaging = [];
@@ -3584,6 +3575,7 @@ function renderTransfersTab(){
             actions.push(`<button class="btn btn-sm btn-primary" data-act="receive" data-id="${t.id}">تأكيد الاستلام</button>`);
             actions.push(`<button class="btn btn-sm btn-ghost" data-act="reject" data-id="${t.id}">رفض</button>`);
           } else if(canCancelSend(t)){
+            if(!isAdmin) actions.push(`<button class="btn btn-sm btn-ghost" data-act="adminedit" data-id="${t.id}">تعديل</button>`);
             actions.push(`<button class="btn btn-sm btn-ghost" data-act="cancel" data-id="${t.id}">إلغاء الإرسال</button>`);
           }
           if(isAdmin && trStatus(t)!=='draft') actions.push(`<button class="btn btn-sm btn-ghost" data-act="adminedit" data-id="${t.id}">تعديل</button>`);
@@ -3670,7 +3662,7 @@ function applyTransferEffects(t){
   if(st!=='pending' && st!=='received') return;
   const fromArr = whArray(t.fromWarehouse), toArr = whArray(t.toWarehouse);
   const date = t.date || todayISO();
-  const tag = ' (تعديل أدمن)';
+  const tag = isAdmin ? ' (تعديل أدمن)' : ' (معدّل قبل الاستلام)';
   t.lines = t.lines.map(ln=>{
     const out = {...ln};
     const fromItem = fromArr.find(i=>i.name.trim()===ln.fromItemName.trim());
@@ -3699,22 +3691,26 @@ function applyTransferEffects(t){
   });
 }
 
+// المرسل يقدر يعدّل تحويله طول ما المستلم لسه ماأكدش الاستلام
+function canSenderEdit(t){ return trStatus(t)==='pending' && (isAllWhUser() || myWarehouse()===t.fromWarehouse); }
 function openAdminTransferEdit(id){
-  if(!isAdmin) return;
   const t = DB.transfers.find(x=>x.id===id);
   if(!t) return;
+  const adminMode = !!isAdmin;
+  if(!adminMode && !canSenderEdit(t)){ showToast('التحويل ده اتستلم خلاص — التعديل للأدمن بس'); renderTransfersTab(); return; }
   const st = trStatus(t);
+  const senderDests = adminMode ? null : myDestinations(t.fromWarehouse);
   const lines = trLines(t);
   const whOpts = (sel)=> WH_DEFS.map(w=>`<option value="${w.id}" ${sel===w.id?'selected':''}>${esc(w.label)}</option>`).join('');
   document.getElementById('modalRoot').innerHTML = `
     <div class="modal-overlay" id="overlay">
       <div class="modal" style="max-width:720px;">
-        <div class="modal-head"><h3>تعديل تحويل (أدمن)</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-head"><h3>${adminMode?'تعديل تحويل (أدمن)':'تعديل تحويل قبل الاستلام'}</h3><button class="modal-close" id="closeX">✕</button></div>
         <div class="modal-body">
           <div style="display:flex;gap:12px;flex-wrap:wrap;">
-            <div class="field" style="flex:1;min-width:150px;"><label>من مخزن</label><select id="ae_from">${whOpts(t.fromWarehouse)}</select></div>
-            <div class="field" style="flex:1;min-width:150px;"><label>إلى مخزن</label><select id="ae_to">${whOpts(t.toWarehouse)}</select></div>
-            <div class="field" style="flex:1;min-width:150px;"><label>الحالة</label>
+            <div class="field" style="flex:1;min-width:150px;"><label>من مخزن</label><select id="ae_from" ${adminMode?'':'disabled'}>${whOpts(t.fromWarehouse)}</select></div>
+            <div class="field" style="flex:1;min-width:150px;"><label>إلى مخزن</label><select id="ae_to">${adminMode? whOpts(t.toWarehouse) : WH_DEFS.filter(w=>senderDests.includes(w.id)||w.id===t.toWarehouse).map(w=>`<option value="${w.id}" ${t.toWarehouse===w.id?'selected':''}>${esc(w.label)}</option>`).join('')}</select></div>
+            <div class="field" style="flex:1;min-width:150px;${adminMode?'':'display:none;'}"><label>الحالة</label>
               <select id="ae_status">
                 <option value="pending" ${st==='pending'?'selected':''}>في الطريق — مستني الاستلام</option>
                 <option value="received" ${st==='received'?'selected':''}>تم الاستلام</option>
@@ -3728,7 +3724,7 @@ function openAdminTransferEdit(id){
             <button type="button" class="btn btn-ghost btn-sm" id="aeAdd" style="margin-top:8px;">+ صنف تاني</button>
           </div>
           <div class="field"><label>ملاحظات</label><input type="text" id="ae_notes" value="${esc(t.notes||'')}"></div>
-          <div class="muted" style="font-size:12px;">الأرصدة بتتظبط تلقائي: النظام بيلغي أثر التحويل القديم على المخازن وبيطبّق القيم الجديدة. "المستلم فعلاً" بيتحسب بس لو الحالة "تم الاستلام".</div>
+          <div class="muted" style="font-size:12px;">${adminMode ? 'الأرصدة بتتظبط تلقائي: النظام بيلغي أثر التحويل القديم على المخازن وبيطبّق القيم الجديدة. "المستلم فعلاً" بيتحسب بس لو الحالة "تم الاستلام".' : 'تقدر تعدّل طول ما المخزن التاني لسه ماأكدش الاستلام. رصيد مخزنك بيتظبط تلقائي على الكميات الجديدة.'}</div>
         </div>
         <div class="modal-foot">
           <button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
@@ -3750,7 +3746,7 @@ function openAdminTransferEdit(id){
     d.innerHTML = `
       <div class="field" style="flex:2;margin:0;min-width:140px;"><label>${n===0?'الصنف':''}</label><input type="text" class="ae_name" value="${esc(v.fromItemName||'')}"></div>
       <div class="field" style="flex:1;margin:0;min-width:80px;"><label>${n===0?'المرسل':''}</label><input type="number" step="0.01" class="ae_qty" value="${v.fromQty!==undefined?esc(v.fromQty):''}"></div>
-      <div class="field" style="flex:1;margin:0;min-width:80px;"><label>${n===0?'المستلم فعلاً':''}</label><input type="number" step="0.01" class="ae_rec" value="${v.toQty!==undefined&&v.toQty!==null?esc(v.toQty):''}" placeholder="زي المرسل"></div>
+      <div class="field" style="flex:1;margin:0;min-width:80px;${adminMode?'':'display:none;'}"><label>${n===0?'المستلم فعلاً':''}</label><input type="number" step="0.01" class="ae_rec" value="${v.toQty!==undefined&&v.toQty!==null?esc(v.toQty):''}" placeholder="زي المرسل"></div>
       <div class="field" style="flex:1;margin:0;min-width:80px;"><label>${n===0?'الوحدة':''}</label><input type="text" class="ae_unit" list="trUnitsList" value="${esc(v.unit||'')}"></div>
       <button type="button" class="icon-btn danger" title="حذف">${svgIcon('trash','sm')}</button>`;
     d.querySelector('button').onclick = ()=>{ if(rowsWrap.children.length>1) d.remove(); else showToast('لازم صنف واحد على الأقل'); };
@@ -3761,9 +3757,13 @@ function openAdminTransferEdit(id){
   document.getElementById('aeAdd').addEventListener('click', ()=>addRow());
 
   document.getElementById('saveBtn').addEventListener('click', async ()=>{
-    const from = document.getElementById('ae_from').value;
+    const from = adminMode ? document.getElementById('ae_from').value : t.fromWarehouse;
     const to = document.getElementById('ae_to').value;
-    const status = document.getElementById('ae_status').value;
+    const status = adminMode ? document.getElementById('ae_status').value : 'pending';
+    if(!adminMode){
+      const cur = DB.transfers.find(x=>x.id===id);
+      if(!cur || !canSenderEdit(cur)){ closeModal(); showToast('المخزن التاني أكد الاستلام قبل ما تحفظ — التعديل بقى للأدمن بس'); renderTransfersTab(); return; }
+    }
     if(from===to){ showToast('مخزن المصدر والوجهة لازم يكونوا مختلفين'); return; }
     const rows = [...rowsWrap.querySelectorAll('.ae-row')].map(r=>{
       const fq = Number(r.querySelector('.ae_qty').value);
@@ -3777,17 +3777,30 @@ function openAdminTransferEdit(id){
       if(!(r.fromQty>0)){ showToast(`كمية غير صحيحة لـ "${r.fromItemName}"`); return; }
       if(Number.isNaN(r.toQty) || r.toQty<0){ showToast(`الكمية المستلمة غير صحيحة لـ "${r.fromItemName}"`); return; }
     }
+    if(!adminMode){
+      // التأكد إن الكميات الجديدة مش أكبر من الرصيد (الرصيد الحالي + اللي كان متخصم في التحويل القديم)
+      const fromArr = whArray(from);
+      const oldByName = {}; trLines(t).forEach(l=>{ if(l.fromItemId!==null){ const k=String(l.fromItemName).trim(); oldByName[k]=(oldByName[k]||0)+Number(l.fromQty||0); } });
+      const newByName = {}; rows.forEach(r=>{ newByName[r.fromItemName]=(newByName[r.fromItemName]||0)+r.fromQty; });
+      for(const name in newByName){
+        const it = fromArr.find(i=>i.name.trim()===name);
+        if(it){ const avail = Number(it.balance) + (oldByName[name]||0);
+          if(newByName[name] > avail){ showToast(`كمية "${name}" أكبر من المتاح (${fmtNum(avail)})`); return; } }
+      }
+      rows.forEach(r=>{ delete r.toQty; });
+    }
     const before = `${whLabel(t.fromWarehouse)} ← ${whLabel(t.toWarehouse)}: ${trLines(t).map(l=>`${fmtNum(l.fromQty)} ${l.fromItemName}`).join('، ')}`;
     undoTransferEffects(t);
     t.fromWarehouse = from; t.toWarehouse = to; t.status = status;
     t.notes = document.getElementById('ae_notes').value.trim();
     t.lines = rows.map(r=>({fromItemName:r.fromItemName, fromQty:r.fromQty, unit:r.unit, toQty:r.toQty}));
+    if(!adminMode) t.lines.forEach(l=>{ delete l.toQty; });
     if(status==='pending' && !t.sentAt){ t.sentAt = new Date().toISOString(); t.sentBy = t.sentBy || userTag(); }
     if(status==='received' && !t.receivedAt){ t.receivedAt = new Date().toISOString(); t.receivedBy = userTag(); }
     if(status==='pending' || status==='draft'){ delete t.receivedAt; delete t.receivedBy; }
     applyTransferEffects(t);
     t.editedBy = userTag(); t.editedAt = new Date().toISOString();
-    logAction(`أدمن عدّل تحويل — قبل: ${before} — بعد: ${whLabel(from)} ← ${whLabel(to)}: ${rows.map(l=>`${fmtNum(l.fromQty)} ${l.fromItemName}`).join('، ')}`);
+    logAction(`${adminMode?'أدمن عدّل':'عدّل'} تحويل — قبل: ${before} — بعد: ${whLabel(from)} ← ${whLabel(to)}: ${rows.map(l=>`${fmtNum(l.fromQty)} ${l.fromItemName}`).join('، ')}`);
     await persist();
     closeModal(); renderTransfersTab(); renderNav();
     showToast('تم تعديل التحويل وتظبيط الأرصدة');
