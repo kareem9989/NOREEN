@@ -604,7 +604,7 @@ tr.detail-row.dim td{color:var(--ink-soft);}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 6-10 — v9</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 6-10 — v11</span></div>
   </aside>
 
   <div class="main">
@@ -675,11 +675,11 @@ let currentTab = 'dashboard';
 /* ================= AUTH (يوزرين: أدمن / أمين مخزن) ================= */
 const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
-const WAREHOUSE_TABS = ['raw','whManufacturing','purchaseRequests','transfers']; // أمين مخزن الخامات
+const WAREHOUSE_TABS = ['raw','whManufacturing','purchaseRequests','transfers','shortageReports']; // أمين مخزن الخامات
 const ROLE_TABS = { // كل مخزن ليه أمين لوحده
-  whman:  ['whManufacturing','raw','transfers','purchaseRequests'],
-  whpack: ['whPackaging','raw','transfers','purchaseRequests'],
-  whfin:  ['whFinished','transfers'],
+  whman:  ['whManufacturing','raw','transfers','purchaseRequests','shortageReports'],
+  whpack: ['whPackaging','raw','transfers','purchaseRequests','shortageReports'],
+  whfin:  ['whFinished','transfers','shortageReports'],
 };
 // تابات بيشوفها الدور من غير ما يعدّل فيها (لا إضافة ولا صرف ولا تعديل ولا حذف)
 const ROLE_READONLY = { whman:['raw'], whpack:['raw'] };
@@ -691,7 +691,7 @@ function isReadOnlyTab(tabId){ return !!(currentUser && ROLE_READONLY[currentUse
 function allowedRawCats(){ return currentUser ? (ROLE_RAW_CATS[currentUser.role]||null) : null; }
 function rawCatAllowed(item){ const c = allowedRawCats(); return !c || c.includes((item.category||'').trim()); }
 const CAIRO_TABS = ['cairoRequests','fillingReports','productionReports'];
-const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','transfers','cairoRequests','fillingReports','productionReports'];
+const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','transfers','shortageReports','cairoRequests','fillingReports','productionReports'];
 function isTabAllowed(tabId){
   if(!currentUser) return false;
   if(currentUser.role==='admin') return true;
@@ -793,6 +793,7 @@ function freshDB(){
     breakdowns: SEED.breakdowns.map(b=>({id:uid(), date:b.date, description:b.description, from:b.from, to:b.to})),
     purchases: [],
     purchaseRequests: [],
+    shortageReports: [],
     whManufacturing: [],
     whPackaging: [],
     whFinished: [],
@@ -815,7 +816,7 @@ function freshDB(){
    بعمل حاجة مختلفة تمامًا في نفس الوقت. كمان كل حفظ بيعمل "دمج" مع آخر نسخة على
    السيرفر بدل الكتابة فوقها بالكامل، عشان لو حد تاني ضاف صنف جديد من وقت ما حمّلنا
    إحنا الصفحة، الصنف ده ميتمسحش. */
-const DB_KEYS = ['settings','users','raw','production','waste','breakdowns','purchases','purchaseRequests','whManufacturing','whPackaging','whFinished','transfers','dispatches','importedOrders','suppliers','itemCard','auditLog','knownUsers','cairoRequests','fillingReports','productionReports'];
+const DB_KEYS = ['settings','users','raw','production','waste','breakdowns','purchases','purchaseRequests','whManufacturing','whPackaging','whFinished','transfers','dispatches','importedOrders','suppliers','itemCard','auditLog','knownUsers','cairoRequests','fillingReports','productionReports','shortageReports'];
 function collKey(k){ return STORAGE_KEY + '__' + k; }
 let LOCAL_SNAPSHOT = {}; // key -> آخر نسخة متفق عليها مع السيرفر (JSON للمجموعة كلها)
 let ITEM_SNAPSHOT = {};  // key -> Map(id -> JSON لكل صنف) من آخر نسخة متفق عليها مع السيرفر
@@ -967,6 +968,7 @@ function applyDBDefaultsAndMigrations(){
       if(!DB.cairoRequests) DB.cairoRequests = [];
       if(!DB.fillingReports) DB.fillingReports = [];
       if(!DB.productionReports) DB.productionReports = [];
+      if(!DB.shortageReports) DB.shortageReports = [];
 }
 
 async function loadDB(){
@@ -1124,6 +1126,7 @@ async function syncFromServer(){
   if(hasPendingLocalChanges()) return;
   let changedAny = false;
   const newCairo = [];
+  const prevShort = new Set((DB.shortageReports||[]).map(r=>r.id));
   const prevReceivable = new Set((DB.transfers||[]).filter(t=>canReceive(t)).map(t=>t.id));
   try{
     const results = await Promise.all(DB_KEYS.map(k=>StorageAPI.get(collKey(k))));
@@ -1148,6 +1151,8 @@ async function syncFromServer(){
   if(!u){ logoutUser(); return; }
   if(u.role!==currentUser.role){ currentUser.role=u.role; isAdmin = u.role==='admin'; renderAdminArea(); }
   const myIncoming = (DB.transfers||[]).filter(t=>canReceive(t) && !prevReceivable.has(t.id));
+  const newShort = isAdmin ? (DB.shortageReports||[]).filter(r=>r.status==='pending' && !prevShort.has(r.id)) : [];
+  if(newShort.length){ playNotifBeep(); showToast(`⚠ تقرير عجز جديد من ${whLabel(newShort[0].warehouse)}`); }
   if(myIncoming.length){
     playNotifBeep();
     showToast(`📦 وصلك ${myIncoming.length===1?'تحويل جديد':myIncoming.length+' تحويلات جديدة'} — أكد الاستلام`);
@@ -1222,6 +1227,7 @@ const TABS = [
   {id:'whPackaging', label:'مخزن التعبئة والتغليف', ic:'box'},
   {id:'whFinished', label:'مخزن الإنتاج التام', ic:'spark'},
   {id:'transfers', label:'التحويلات المخزنية', ic:'history'},
+  {id:'shortageReports', label:'تقارير العجز', ic:'alert'},
   {id:'suppliers', label:'الموردين', ic:'suppliers'},
   {id:'itemCard', label:'كارتة الصنف', ic:'card'},
   {id:'customerOrders', label:'أوردرات العملاء', ic:'orders'},
@@ -1235,6 +1241,7 @@ const TABS = [
 const TITLES = {
   dashboard:['لوحة القيادة','نظرة عامة على المخازن والإنتاج'],
   cairoRequests:['طلبات القاهرة','طلبات عينات وأوردرات فريق القاهرة عشان طنطا تجهزها'],
+  shortageReports:['تقارير العجز','أمين المخزن بيكتب العجز وسببه، والأدمن بيراجعه ويعتمده'],
   purchaseRequests:['طلبات مشتريات','اطلب خامة محتاجينها والأدمن يوافق عليها قبل الشراء'],
   purchases:['المشتريات','تسجيل مشتريات الخامات الواردة من الموردين'],
   raw:['مخزن الخامات','كل حاجة بتدخل المصنع: خامات، رولات، كراتين، وأي فئة تانية — مقسّمة فئات فرعية'],
@@ -1262,6 +1269,7 @@ function renderNav(){
     else if(t.id==='production') count = DB.production.length;
     else if(t.id==='waste') count = DB.waste.length;
     else if(t.id==='breakdowns') count = DB.breakdowns.length;
+    else if(t.id==='shortageReports') count = (isAdmin ? (DB.shortageReports||[]).filter(r=>r.status==='pending').length : visibleShortages().filter(r=>r.status==='pending').length) || '';
     else if(t.id==='purchaseRequests') count = (DB.purchaseRequests||[]).filter(r=>r.status==='pending').length || '';
     else if(t.id==='cairoRequests') count = (DB.cairoRequests||[]).filter(r=>r.status!=='delivered').length || '';
     else if(t.id==='purchases') count = DB.purchases.length;
@@ -4062,6 +4070,248 @@ function openTransferModal(prefill, editId){
   document.getElementById('saveBtn').addEventListener('click', ()=>save(false));
 }
 
+/* ================= تقارير العجز ================= */
+// أمين المخزن بيكتب تقرير بالعجز (الصنف، الرصيد في السيستم، الموجود فعلاً، السبب)
+// والأدمن بيراجعه: يعتمده (والرصيد يتخصم منه العجز) أو يرفضه
+const SH_STATUS = {
+  pending:{label:'مستني مراجعة الأدمن', cls:'pill-warn'},
+  approved:{label:'اتعتمد — الرصيد اتظبط', cls:'pill-ok'},
+  noted:{label:'اتعتمد بدون تعديل الرصيد', cls:'pill-navy'},
+  rejected:{label:'مرفوض', cls:'pill-danger'},
+};
+const SH_REASONS = ['تلف','كسر / قطع في العبوة','انتهاء صلاحية','فرق جرد','سرقة / فقد','خطأ في التسجيل','هالك تصنيع','أخرى'];
+function visibleShortages(){
+  const all = DB.shortageReports||[];
+  if(isAllWhUser()) return all;
+  const w = myWarehouse();
+  return all.filter(r=>r.warehouse===w);
+}
+function canEditShortage(r){ return r.status==='pending' && (isAdmin || (currentUser && r.byUsername===currentUser.username)); }
+
+function renderShortagesTab(){
+  const list = [...visibleShortages()].sort((a,b)=>{
+    const pa = a.status==='pending'?0:1, pb = b.status==='pending'?0:1;
+    if(pa!==pb) return pa-pb;
+    return (b.ts||'').localeCompare(a.ts||'');
+  });
+  const pendingN = list.filter(r=>r.status==='pending').length;
+  const canCreate = isAllWhUser() || !!myWarehouse();
+  let html = `
+  ${isAdmin && pendingN ? `<div class="panel" style="padding:14px 18px;border-color:var(--warn);background:var(--warn-bg);margin-bottom:14px;display:flex;align-items:center;gap:10px;">${svgIcon('alert')}<div><strong>فيه ${pendingN} تقرير عجز مستني مراجعتك.</strong></div></div>`:''}
+  <div class="panel">
+    <div class="panel-head">
+      <h2>تقارير العجز <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
+      <div class="toolbar">${canCreate?`<button class="btn btn-gold" id="addShortageBtn">+ تقرير عجز جديد</button>`:''}</div>
+    </div>
+    <div class="panel-body">
+      ${list.length ? `
+      <div class="table-wrap"><table>
+        <thead><tr><th>التاريخ</th><th>المخزن</th><th>الصنف</th><th>في السيستم</th><th>الموجود فعلاً</th><th>العجز</th><th>السبب</th><th>كتبه</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>
+        ${list.map(r=>{
+          const st = SH_STATUS[r.status]||SH_STATUS.pending;
+          const L = r.lines||[];
+          const u = ln=> ln.unit?` <span class="muted" style="font-size:11px">${esc(ln.unit)}</span>`:'';
+          const actions = [];
+          if(isAdmin && r.status==='pending'){
+            actions.push(`<button class="btn btn-sm btn-primary" data-sh="approve" data-id="${r.id}" title="اعتماد وخصم العجز من الرصيد">اعتماد</button>`);
+            actions.push(`<button class="btn btn-sm btn-ghost" data-sh="note" data-id="${r.id}" title="اعتماد التقرير من غير ما الرصيد يتغير">اعتماد بدون خصم</button>`);
+            actions.push(`<button class="btn btn-sm btn-ghost" data-sh="reject" data-id="${r.id}">رفض</button>`);
+          }
+          if(canEditShortage(r)) actions.push(`<button class="btn btn-sm btn-ghost" data-sh="edit" data-id="${r.id}">تعديل</button>`);
+          if(isAdmin || canEditShortage(r)) actions.push(`<button class="icon-btn danger" data-sh="delete" data-id="${r.id}" title="حذف">${svgIcon('trash','sm')}</button>`);
+          return `<tr>
+            <td>${r.ts?fmtDateTimeAr(r.ts):fmtDateAr(r.date)}</td>
+            <td><span class="pill pill-navy">${esc(whLabel(r.warehouse))}</span></td>
+            <td style="font-weight:700">${L.map(ln=>esc(ln.itemName)).join('<br>')}${r.notes?`<div class="muted" style="font-size:11.5px;font-weight:500;">${esc(r.notes)}</div>`:''}</td>
+            <td class="num">${L.map(ln=>fmtNum(ln.systemQty)+u(ln)).join('<br>')}</td>
+            <td class="num">${L.map(ln=>fmtNum(ln.actualQty)+u(ln)).join('<br>')}</td>
+            <td class="num" style="color:var(--danger);font-weight:800">${L.map(ln=>fmtNum(ln.shortQty)+u(ln)).join('<br>')}</td>
+            <td style="font-size:12.5px">${L.map(ln=>esc(ln.reason||'—')+(ln.reasonDetails?` <span class="muted">— ${esc(ln.reasonDetails)}</span>`:'')).join('<br>')}</td>
+            <td style="font-size:12px">${esc(r.byName||'—')}</td>
+            <td><span class="pill ${st.cls}">${st.label}</span>${r.reviewedBy?`<div class="muted" style="font-size:11px;margin-top:3px;">بواسطة ${esc(r.reviewedBy)}${r.reviewNote?` — ${esc(r.reviewNote)}`:''}</div>`:''}</td>
+            <td><div class="btn-icon-row">${actions.join('')}</div></td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state">${svgIcon('alert')}<div>مفيش تقارير عجز</div></div>`}
+    </div>
+  </div>`;
+  document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
+  const add = document.getElementById('addShortageBtn');
+  if(add) add.addEventListener('click', ()=>openShortageModal());
+  document.querySelectorAll('[data-sh="edit"]').forEach(b=>b.addEventListener('click', ()=>openShortageModal(b.dataset.id)));
+  document.querySelectorAll('[data-sh="approve"]').forEach(b=>b.addEventListener('click', ()=>reviewShortage(b.dataset.id,'approved')));
+  document.querySelectorAll('[data-sh="note"]').forEach(b=>b.addEventListener('click', ()=>reviewShortage(b.dataset.id,'noted')));
+  document.querySelectorAll('[data-sh="reject"]').forEach(b=>b.addEventListener('click', ()=>reviewShortage(b.dataset.id,'rejected')));
+  document.querySelectorAll('[data-sh="delete"]').forEach(b=>b.addEventListener('click', ()=>{
+    const r = (DB.shortageReports||[]).find(x=>x.id===b.dataset.id);
+    const msg = r && r.status==='approved' ? 'التقرير ده اتعتمد والعجز اتخصم من الرصيد. لو حذفته، الكمية هترجع للرصيد تاني. متأكد؟' : 'هل تريد حذف تقرير العجز ده؟';
+    openConfirmModal(msg, async ()=>{
+      const r2 = (DB.shortageReports||[]).find(x=>x.id===b.dataset.id);
+      if(r2 && r2.status==='approved'){
+        const arr = whArray(r2.warehouse);
+        (r2.lines||[]).forEach(ln=>{
+          const it = arr.find(i=>i.id===ln.itemId) || arr.find(i=>i.name.trim()===String(ln.itemName).trim());
+          if(it){ it.balance = Math.round((Number(it.balance) + Number(ln.shortQty||0))*100)/100; if(it.history) it.history = it.history.filter(h=>h.refId!==r2.id); }
+        });
+      }
+      DB.shortageReports = (DB.shortageReports||[]).filter(x=>x.id!==b.dataset.id);
+      logAction(`حذف تقرير عجز${r2?` (${whLabel(r2.warehouse)})`:''}`);
+      await persist(); renderShortagesTab(); renderNav();
+      showToast('تم حذف التقرير');
+    });
+  }));
+}
+
+function reviewShortage(id, status){
+  const r = (DB.shortageReports||[]).find(x=>x.id===id);
+  if(!r || !isAdmin) return;
+  const titles = {approved:'اعتماد التقرير وخصم العجز من الرصيد', noted:'اعتماد التقرير بدون تعديل الرصيد', rejected:'رفض التقرير'};
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay"><div class="modal" style="max-width:440px;">
+      <div class="modal-head"><h3>${titles[status]}</h3><button class="modal-close" id="closeX">✕</button></div>
+      <div class="modal-body">
+        ${status==='approved'?`<div style="font-size:13px;">هيتخصم من ${esc(whLabel(r.warehouse))}:<br>${(r.lines||[]).map(ln=>`• ${esc(ln.itemName)}: <b style="color:var(--danger)">${fmtNum(ln.shortQty)}${ln.unit?' '+esc(ln.unit):''}</b>`).join('<br>')}</div>`:''}
+        <div class="field"><label>ملاحظة الأدمن ${status==='rejected'?'(سبب الرفض)':'(اختياري)'}</label><input type="text" id="f_revNote"></div>
+      </div>
+      <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button><button class="btn ${status==='rejected'?'btn-danger':'btn-primary'}" id="saveBtn">تأكيد</button></div>
+    </div></div>`;
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const r2 = (DB.shortageReports||[]).find(x=>x.id===id);
+    if(!r2 || r2.status!=='pending'){ closeModal(); showToast('التقرير ده اتراجع بالفعل'); renderShortagesTab(); return; }
+    if(status==='approved'){
+      const arr = whArray(r2.warehouse);
+      r2.lines.forEach(ln=>{
+        const it = arr.find(i=>i.id===ln.itemId) || arr.find(i=>i.name.trim()===String(ln.itemName).trim());
+        if(it){
+          it.balance = Math.round((Number(it.balance) - Number(ln.shortQty||0))*100)/100;
+          it.history = it.history || [];
+          it.history.push({date:todayISO(), ts:new Date().toISOString(), type:'صرف', qty:Number(ln.shortQty||0), notes:`عجز معتمد — ${ln.reason||''}${ln.reasonDetails?' — '+ln.reasonDetails:''}`, refId:r2.id, by:userTag()});
+        }
+      });
+    }
+    r2.status = status;
+    r2.reviewedBy = userTag();
+    r2.reviewedAt = new Date().toISOString();
+    r2.reviewNote = document.getElementById('f_revNote').value.trim();
+    logAction(`${status==='rejected'?'رفض':'اعتمد'} تقرير عجز (${whLabel(r2.warehouse)})${status==='approved'?' وخصم العجز من الرصيد':''}`);
+    await persist(); closeModal(); renderShortagesTab(); renderNav();
+    showToast(status==='approved'?'تم الاعتماد وخصم العجز من الرصيد':(status==='noted'?'تم الاعتماد بدون تعديل الرصيد':'تم رفض التقرير'));
+  });
+}
+
+function openShortageModal(editId){
+  const ex = editId ? (DB.shortageReports||[]).find(x=>x.id===editId) : null;
+  if(editId && (!ex || !canEditShortage(ex))){ showToast('التقرير ده مش متاح للتعديل'); return; }
+  const mine = myWarehouse();
+  const whChoices = isAllWhUser() ? WH_DEFS : WH_DEFS.filter(w=>w.id===mine);
+  const startWh = ex ? ex.warehouse : (whChoices[0]||{}).id;
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay"><div class="modal" style="max-width:780px;">
+      <div class="modal-head"><h3>${ex?'تعديل تقرير عجز':'تقرير عجز جديد'}</h3><button class="modal-close" id="closeX">✕</button></div>
+      <div class="modal-body">
+        <div class="field"><label>المخزن *</label>
+          <select id="sh_wh" ${(whChoices.length===1||ex)?'disabled':''}>${whChoices.map(w=>`<option value="${w.id}" ${w.id===startWh?'selected':''}>${esc(w.label)}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>الأصناف اللي فيها عجز *</label>
+          <div id="shRows" style="display:flex;flex-direction:column;gap:10px;"></div>
+          <button type="button" class="btn btn-ghost btn-sm" id="shAdd" style="margin-top:8px;">+ صنف تاني</button>
+          <datalist id="shItems"></datalist>
+        </div>
+        <div class="field"><label>ملاحظات عامة (اختياري)</label><input type="text" id="sh_notes" value="${ex?esc(ex.notes||''):''}" placeholder="مثال: الجرد الأسبوعي يوم الخميس"></div>
+        <div class="muted" style="font-size:12px;">الرصيد في السيستم بيتكتب لوحده. اكتب الموجود فعلاً والعجز هيتحسب. التقرير بيروح للأدمن يراجعه، والرصيد مش بيتغير غير لما الأدمن يعتمده.</div>
+      </div>
+      <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button><button class="btn btn-primary" id="saveBtn">${ex?'حفظ التعديل':'إرسال للأدمن'}</button></div>
+    </div></div>`;
+  const overlay = document.getElementById('overlay');
+  overlay.addEventListener('click',(e)=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click', closeModal);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  const whSel = document.getElementById('sh_wh');
+  const rows = document.getElementById('shRows');
+  const dl = document.getElementById('shItems');
+  function itemsOf(){ let a = whArray(whSel.value)||[]; if(whSel.value==='raw') a = a.filter(rawCatAllowed); return a; }
+  function fillDl(){ dl.innerHTML = itemsOf().map(it=>`<option value="${esc(it.name)}">رصيد: ${fmtNum(it.balance)}</option>`).join(''); }
+  function recalc(row){
+    const name = row.querySelector('.sh_name').value.trim();
+    const it = itemsOf().find(i=>i.name.trim()===name);
+    const sysEl = row.querySelector('.sh_sys');
+    if(it && !row.dataset.sysLocked){ sysEl.value = it.balance; if(!row.querySelector('.sh_unit').value && it.unit) row.querySelector('.sh_unit').value = it.unit; }
+    const sys = Number(sysEl.value), act = row.querySelector('.sh_act').value;
+    const short = act==='' || Number.isNaN(sys) ? '' : Math.round((sys - Number(act))*100)/100;
+    row.querySelector('.sh_short').textContent = short==='' ? '—' : fmtNum(short);
+    row.querySelector('.sh_short').style.color = short!=='' && short>0 ? 'var(--danger)' : '';
+  }
+  function addRow(v){
+    v = v || {};
+    const d = document.createElement('div');
+    d.className = 'sh-row';
+    d.style.cssText = 'display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:10px;border:1px solid var(--border,#e5e7eb);border-radius:10px;';
+    d.innerHTML = `
+      <div class="field" style="flex:2.2;margin:0;min-width:160px;"><label>الصنف</label><input type="text" class="sh_name" list="shItems" value="${esc(v.itemName||'')}"></div>
+      <div class="field" style="flex:1;margin:0;min-width:85px;"><label>في السيستم</label><input type="number" step="0.01" class="sh_sys" value="${v.systemQty!==undefined?esc(v.systemQty):''}"></div>
+      <div class="field" style="flex:1;margin:0;min-width:85px;"><label>الموجود فعلاً *</label><input type="number" step="0.01" class="sh_act" value="${v.actualQty!==undefined?esc(v.actualQty):''}"></div>
+      <div class="field" style="flex:.8;margin:0;min-width:70px;"><label>الوحدة</label><input type="text" class="sh_unit" list="trUnitsList" value="${esc(v.unit||'')}"></div>
+      <div style="flex:.7;min-width:70px;text-align:center;"><div class="muted" style="font-size:11px;">العجز</div><div class="sh_short" style="font-weight:800;font-size:15px;">—</div></div>
+      <div class="field" style="flex:1.4;margin:0;min-width:130px;"><label>السبب *</label><input type="text" class="sh_reason" autocomplete="off" value="${esc(v.reason||'')}" placeholder="اكتب السبب"></div>
+      <div class="field" style="flex:2;margin:0;min-width:160px;"><label>تفاصيل السبب</label><input type="text" class="sh_det" autocomplete="off" value="${esc(v.reasonDetails||'')}" placeholder="إيه اللي حصل بالظبط؟"></div>
+      <button type="button" class="icon-btn danger" title="حذف">${svgIcon('trash','sm')}</button>`;
+    if(v.itemName) d.dataset.sysLocked = '1';
+    d.querySelector('button').onclick = ()=>{ if(rows.children.length>1) d.remove(); else showToast('لازم صنف واحد على الأقل'); };
+    d.querySelector('.sh_name').addEventListener('input', ()=>{ delete d.dataset.sysLocked; recalc(d); });
+    d.querySelector('.sh_sys').addEventListener('input', ()=>{ d.dataset.sysLocked='1'; recalc(d); });
+    d.querySelector('.sh_act').addEventListener('input', ()=>recalc(d));
+    rows.appendChild(d); recalc(d);
+  }
+  if(!document.getElementById('trUnitsList')) document.body.insertAdjacentHTML('beforeend', `<datalist id="trUnitsList">${TR_UNITS.map(u=>`<option value="${u}">`).join('')}</datalist>`);
+  fillDl();
+  whSel.addEventListener('change', ()=>{ fillDl(); rows.querySelectorAll('.sh-row').forEach(r=>{ delete r.dataset.sysLocked; recalc(r); }); });
+  if(ex) ex.lines.forEach(addRow); else addRow();
+  document.getElementById('shAdd').addEventListener('click', ()=>addRow());
+
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const wh = whSel.value;
+    if(!wh){ showToast('اختار المخزن'); return; }
+    const arr = itemsOf();
+    const lines = [];
+    for(const r of rows.querySelectorAll('.sh-row')){
+      const itemName = r.querySelector('.sh_name').value.trim();
+      const sys = Number(r.querySelector('.sh_sys').value);
+      const actRaw = r.querySelector('.sh_act').value;
+      const reason = r.querySelector('.sh_reason').value.trim();
+      if(!itemName && actRaw==='') continue;
+      if(!itemName){ showToast('فيه صف من غير اسم صنف'); return; }
+      if(actRaw==='' || Number(actRaw)<0){ showToast(`اكتب الموجود فعلاً لـ "${itemName}"`); return; }
+      if(Number.isNaN(sys)){ showToast(`رصيد السيستم غير صحيح لـ "${itemName}"`); return; }
+      const shortQty = Math.round((sys - Number(actRaw))*100)/100;
+      if(shortQty<=0){ showToast(`"${itemName}" مفيهوش عجز (الموجود مش أقل من السيستم)`); return; }
+      if(!reason){ showToast(`اكتب سبب العجز لـ "${itemName}"`); return; }
+      const it = arr.find(i=>i.name.trim()===itemName);
+      lines.push({itemId: it?it.id:null, itemName, systemQty:sys, actualQty:Number(actRaw), shortQty, unit:r.querySelector('.sh_unit').value.trim(), reason, reasonDetails:r.querySelector('.sh_det').value.trim()});
+    }
+    if(!lines.length){ showToast('اكتب صنف واحد على الأقل'); return; }
+    const notes = document.getElementById('sh_notes').value.trim();
+    if(ex){
+      const cur = (DB.shortageReports||[]).find(x=>x.id===editId);
+      if(!cur || !canEditShortage(cur)){ closeModal(); showToast('الأدمن راجع التقرير خلاص — مينفعش يتعدل'); renderShortagesTab(); return; }
+      cur.lines = lines; cur.notes = notes; cur.editedAt = new Date().toISOString();
+      logAction(`عدّل تقرير عجز (${whLabel(cur.warehouse)})`);
+    } else {
+      if(!DB.shortageReports) DB.shortageReports = [];
+      DB.shortageReports.unshift({id:uid(), date:todayISO(), ts:new Date().toISOString(), warehouse:wh, lines, notes,
+        status:'pending', byName:userTag(), byUsername: currentUser?currentUser.username:''});
+      logAction(`كتب تقرير عجز (${whLabel(wh)}): ${lines.map(l=>`${l.itemName} عجز ${fmtNum(l.shortQty)}${l.unit?' '+l.unit:''} — ${l.reason}`).join('، ')}`);
+    }
+    await persist(); closeModal(); renderShortagesTab(); renderNav();
+    showToast(ex?'تم حفظ التعديل':'التقرير اتبعت للأدمن');
+  });
+}
+
 /* ================= ROUTER ================= */
 function renderContent(){
   tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
@@ -4071,6 +4321,7 @@ function renderContent(){
   else if(currentTab==='cairoRequests') renderCairoRequestsTab();
   else if(currentTab==='purchases') renderPurchasesTab();
   else if(currentTab==='transfers') renderTransfersTab();
+  else if(currentTab==='shortageReports') renderShortagesTab();
   else if(currentTab==='customerOrders') renderExternalOrdersTab();
   else if(currentTab==='auditLog') renderAuditLogTab();
   else renderGenericTab(currentTab);
