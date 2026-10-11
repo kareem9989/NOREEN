@@ -258,6 +258,10 @@ tr.detail-row.dim td{color:var(--ink-soft);}
 
 /* print report (production PDF) */
 #printArea{display:none;}
+body.viewer-mode #content [data-act]:not([data-act="history"]):not([data-act="detail"]):not([data-act="view"]):not([data-act="wa"]),
+body.viewer-mode #addBtn, body.viewer-mode [id^="add"][id$="Btn"], body.viewer-mode #importOrdersBtn, body.viewer-mode #doDispatchBtn,
+body.viewer-mode #undoDispatchBtn, body.viewer-mode #lsEdit, body.viewer-mode #lsSave, body.viewer-mode #thresholdInput, body.viewer-mode #applyThreshold,
+body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer-mode .modal #confirmBtn, body.viewer-mode .btn-danger{display:none !important;}
 #printArea .pr-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #2D2B74;padding-bottom:14px;margin-bottom:18px;}
 #printArea .pr-brand{font-size:22px;font-weight:800;color:#2D2B74;}
 #printArea .pr-brand span{color:#FEB913;}
@@ -605,7 +609,7 @@ tr.detail-row.dim td{color:var(--ink-soft);}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 8-10 — v13</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 11-10 — v14</span></div>
   </aside>
 
   <div class="main">
@@ -688,7 +692,9 @@ const ROLE_READONLY = { whman:['raw'], whpack:['raw'] };
 const ROLE_RAW_CATS = { whpack:['أكياس','عبوات','كراتين','استيكر'] };
 // المخازن اللي كل دور يقدر يحوّل ليها
 const ROLE_DEST = { warehouse:['manufacturing'], whman:['packaging'], whpack:['finished'], whfin:[] };
-function isReadOnlyTab(tabId){ return !!(currentUser && ROLE_READONLY[currentUser.role] && ROLE_READONLY[currentUser.role].includes(tabId)); }
+const VIEWER_ROLES=['finance','factory']; // مراقب مالي + مدير المصنع: عرض بس + ملاحظات
+function isViewer(){ return !!(currentUser && VIEWER_ROLES.includes(currentUser.role)); }
+function isReadOnlyTab(tabId){ if(isViewer()) return true; return !!(currentUser && ROLE_READONLY[currentUser.role] && ROLE_READONLY[currentUser.role].includes(tabId)); }
 function allowedRawCats(){ return currentUser ? (ROLE_RAW_CATS[currentUser.role]||null) : null; }
 function rawCatAllowed(item){ const c = allowedRawCats(); return !c || c.includes((item.category||'').trim()); }
 const CAIRO_TABS = ['cairoRequests','fillingReports','productionReports'];
@@ -696,6 +702,7 @@ const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','tran
 function isTabAllowed(tabId){
   if(!currentUser) return false;
   if(currentUser.role==='admin') return true;
+  if(isViewer()) return tabId!=='auditLog';
   if(currentUser.role==='cairo') return CAIRO_TABS.includes(tabId);
   if(currentUser.role==='operation') return OPERATION_TABS.includes(tabId);
   if(ROLE_TABS[currentUser.role]) return ROLE_TABS[currentUser.role].includes(tabId);
@@ -703,7 +710,7 @@ function isTabAllowed(tabId){
 }
 function firstAllowedTab(){
   if(!currentUser) return 'dashboard';
-  if(currentUser.role==='admin') return 'dashboard';
+  if(currentUser.role==='admin' || isViewer()) return 'dashboard';
   if(currentUser.role==='cairo') return CAIRO_TABS[0];
   if(currentUser.role==='operation') return OPERATION_TABS[0];
   if(ROLE_TABS[currentUser.role]) return ROLE_TABS[currentUser.role][0];
@@ -804,6 +811,7 @@ function freshDB(){
     suppliers: [],
     itemCard: [],
     auditLog: [],
+    observerNotes: [],
     knownUsers: [],
     cairoRequests: [],
     fillingReports: [],
@@ -817,7 +825,7 @@ function freshDB(){
    بعمل حاجة مختلفة تمامًا في نفس الوقت. كمان كل حفظ بيعمل "دمج" مع آخر نسخة على
    السيرفر بدل الكتابة فوقها بالكامل، عشان لو حد تاني ضاف صنف جديد من وقت ما حمّلنا
    إحنا الصفحة، الصنف ده ميتمسحش. */
-const DB_KEYS = ['settings','users','raw','production','waste','breakdowns','purchases','purchaseRequests','whManufacturing','whPackaging','whFinished','transfers','dispatches','importedOrders','suppliers','itemCard','auditLog','knownUsers','cairoRequests','fillingReports','productionReports','shortageReports'];
+const DB_KEYS = ['settings','users','raw','production','waste','breakdowns','purchases','purchaseRequests','whManufacturing','whPackaging','whFinished','transfers','dispatches','importedOrders','suppliers','itemCard','auditLog','knownUsers','cairoRequests','fillingReports','productionReports','shortageReports','observerNotes'];
 function collKey(k){ return STORAGE_KEY + '__' + k; }
 let LOCAL_SNAPSHOT = {}; // key -> آخر نسخة متفق عليها مع السيرفر (JSON للمجموعة كلها)
 let ITEM_SNAPSHOT = {};  // key -> Map(id -> JSON لكل صنف) من آخر نسخة متفق عليها مع السيرفر
@@ -965,6 +973,7 @@ function applyDBDefaultsAndMigrations(){
       if(!DB.suppliers) DB.suppliers = [];
       if(!DB.itemCard) DB.itemCard = [];
       if(!DB.auditLog) DB.auditLog = [];
+      if(!DB.observerNotes) DB.observerNotes = [];
       if(!DB.knownUsers) DB.knownUsers = [];
       if(!DB.cairoRequests) DB.cairoRequests = [];
       if(!DB.fillingReports) DB.fillingReports = [];
@@ -1076,7 +1085,32 @@ function mergeCollectionAfterSave(k, localNowArr, savedArr, localAtSaveJson){
   return out;
 }
 
+const VIEWER_WRITABLE=['observerNotes','knownUsers'];
+function viewerGuard(){
+  // حساب المراقبة: أي تغيير في الداتا (غير الملاحظات) بيترجع زي ما كان ومش بيتحفظ
+  let blocked=false;
+  DB_KEYS.forEach(k=>{
+    if(VIEWER_WRITABLE.includes(k) || LOCAL_SNAPSHOT[k]===undefined) return;
+    const now=JSON.stringify(DB[k]); if(now===LOCAL_SNAPSHOT[k]) return;
+    if(k==='auditLog'){
+      let old=[]; try{ old=JSON.parse(LOCAL_SNAPSHOT[k])||[]; }catch(e){}
+      const ids=new Set(old.map(x=>x&&x.id));
+      const ok=(DB.auditLog||[]).filter(x=>!ids.has(x.id) && /^(تسجيل دخول|تسجيل خروج|كتب ملاحظة)/.test(x.action||''));
+      if(ok.length!==(DB.auditLog||[]).filter(x=>!ids.has(x.id)).length) blocked=true;
+      DB.auditLog=[...ok, ...old];
+      return;
+    }
+    try{ DB[k]=JSON.parse(LOCAL_SNAPSHOT[k]); }catch(e){}
+    blocked=true;
+  });
+  if(blocked){
+    closeModal && closeModal();
+    showToast('🔒 حسابك للمراقبة بس — مفيش أي تعديل اتحفظ. تقدر تكتب ملاحظة من زرار "📝 اكتب ملاحظة"');
+    try{ renderContent(); renderNav(); }catch(e){}
+  }
+}
 function persist(silent){
+  if(isViewer()) viewerGuard();
   if(!silent) setSaveUI('saving');
   return new Promise((resolve)=>{
     persistWaiters.push(resolve);
@@ -1239,6 +1273,7 @@ const TABS = [
   {id:'fillingReports', label:'تقرير التعبئة', ic:'box'},
   {id:'waste', label:'تقرير الهالك', ic:'waste'},
   {id:'breakdowns', label:'الأعطال', ic:'breakdowns'},
+  {id:'observerNotes', label:'ملاحظات المراقبة', ic:'edit'},
   {id:'auditLog', label:'سجل النشاط', ic:'history'},
 ];
 const TITLES = {
@@ -1251,6 +1286,7 @@ const TITLES = {
   whManufacturing:['مخزن التصنيع','أرصدة الأصناف نصف المصنّعة داخل مرحلة التصنيع'],
   whPackaging:['مخزن التعبئة والتغليف','أرصدة الأصناف بعد مرحلة التعبئة والتغليف'],
   whFinished:['مخزن الإنتاج التام','أرصدة المنتج النهائي الجاهز'],
+  observerNotes:['ملاحظات المراقبة','ملاحظات المراقب المالي ومدير المصنع على السيستم'],
   lowStock:['تقرير حد الأمان','الأصناف اللي رصيدها وصل لحد الأمان أو أقل — لكل صنف حد أمان خاص بيه'],
   whReport:['تقرير المخازن','كل مخزن: ضاف كام، صرف كام، اتحوّل منه وليه كام، ورصيده أول وآخر الفترة'],
   transfers:['التحويلات المخزنية','تسجيل كل تحويل بين المخازن بدل الورق: من مخزن إلى مخزن'],
@@ -1286,6 +1322,7 @@ function renderNav(){
     else if(t.id==='itemCard') count = DB.itemCard.length;
     else if(t.id==='customerOrders') count = (DB.importedOrders||[]).length;
     else if(t.id==='auditLog') count = (DB.auditLog||[]).length;
+    else if(t.id==='observerNotes') count = (DB.observerNotes||[]).filter(n=>!n.handled).length || '';
     else if(t.id==='fillingReports') count = (DB.fillingReports||[]).length;
     else if(t.id==='productionReports') count = (DB.productionReports||[]).length;
     return `<button class="nav-item ${currentTab===t.id?'active':''}" data-tab="${t.id}">
@@ -4821,6 +4858,60 @@ function renderWhReportTab(){
   if(typeof _toast==='function'){ window.showToast = function(){ setTimeout(release,0); return _toast.apply(this, arguments); }; }
 })();
 
+/* ================= ملاحظات المراقبة ================= */
+function openObserverNoteModal(){
+  const tabLabel=(TITLES[currentTab]||[currentTab])[0];
+  document.getElementById('modalRoot').innerHTML=`
+  <div class="modal-overlay" id="overlay"><div class="modal" style="max-width:520px;">
+    <div class="modal-head"><h3>ملاحظة جديدة</h3><button class="modal-close" id="closeX">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>على صفحة</label><input type="text" id="on_tab" value="${esc(tabLabel)}"></div>
+      <div class="field"><label>الملاحظة *</label><textarea id="on_text" rows="5" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--ink);font-family:inherit;" placeholder="اكتب ملاحظتك..."></textarea></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="onCancel">إلغاء</button><button class="btn btn-primary" id="onSave">إرسال الملاحظة</button></div>
+  </div></div>`;
+  const ov=document.getElementById('overlay'); ov.addEventListener('click',e=>{ if(e.target===ov) closeModal(); });
+  document.getElementById('closeX').onclick=closeModal; document.getElementById('onCancel').onclick=closeModal;
+  document.getElementById('on_text').focus();
+  let busy=false;
+  document.getElementById('onSave').onclick=async ()=>{
+    if(busy) return;
+    const text=document.getElementById('on_text').value.trim(); if(!text){ showToast('اكتب الملاحظة'); return; }
+    busy=true;
+    if(!DB.observerNotes) DB.observerNotes=[];
+    DB.observerNotes.unshift({id:uid(), ts:new Date().toISOString(), tab:currentTab, tabLabel:document.getElementById('on_tab').value.trim(), text, by:currentUser.name, username:currentUser.username, role:currentUser.role, handled:false});
+    logAction(`كتب ملاحظة على "${document.getElementById('on_tab').value.trim()}"`);
+    await persist(); closeModal(); renderNav(); if(currentTab==='observerNotes') renderObserverNotesTab();
+    showToast('الملاحظة اتبعتت للأدمن');
+  };
+}
+let obsFilter='open';
+function renderObserverNotesTab(){
+  const all=(DB.observerNotes||[]).slice().sort((a,b)=>String(b.ts).localeCompare(String(a.ts)));
+  const list=all.filter(n=> obsFilter==='all' || (obsFilter==='open'?!n.handled:n.handled));
+  document.getElementById('content').innerHTML=`<div class="content-fade"><div class="panel">
+   <div class="panel-head"><h2>ملاحظات المراقبة (${list.length})</h2><div class="toolbar">
+     <select class="filter-box" id="obsF"><option value="open" ${obsFilter==='open'?'selected':''}>لسه ماتشافتش</option><option value="done" ${obsFilter==='done'?'selected':''}>اتشافت</option><option value="all" ${obsFilter==='all'?'selected':''}>الكل</option></select>
+     ${isViewer()?`<button class="btn btn-gold" id="obsNew">📝 ملاحظة جديدة</button>`:''}
+   </div></div>
+   <div class="panel-body">${list.length?`<div class="table-wrap"><table><thead><tr><th>الوقت</th><th>مين</th><th>على صفحة</th><th>الملاحظة</th><th>رد الأدمن</th><th>الحالة</th></tr></thead><tbody>
+   ${list.map(n=>`<tr><td>${fmtDateTimeAr(n.ts)}</td><td style="font-weight:700">${esc(n.by)}<div class="muted" style="font-size:11px">${esc(ROLE_LABELS[n.role]||'')}</div></td><td><span class="pill pill-navy">${esc(n.tabLabel||'—')}</span></td>
+     <td style="white-space:pre-wrap;max-width:380px">${esc(n.text)}</td><td class="muted" style="white-space:pre-wrap;max-width:260px">${esc(n.reply||'')||'—'}</td>
+     <td>${n.handled?'<span class="pill pill-ok">اتشافت</span>':'<span class="pill pill-warn">جديدة</span>'}${isAdmin?`<div style="margin-top:6px;display:flex;gap:6px;"><button class="btn btn-ghost btn-sm" data-obsreply="${n.id}">رد</button>${n.handled?'':`<button class="btn btn-ghost btn-sm" data-obsdone="${n.id}">✓ اتشافت</button>`}</div>`:''}</td></tr>`).join('')}
+   </tbody></table></div>`:`<div class="empty-state">مفيش ملاحظات</div>`}</div></div></div>`;
+  document.getElementById('obsF').onchange=e=>{ obsFilter=e.target.value; renderObserverNotesTab(); };
+  const nb=document.getElementById('obsNew'); if(nb) nb.onclick=()=>openObserverNoteModal();
+  document.querySelectorAll('[data-obsdone]').forEach(b=>b.onclick=async ()=>{ const n=DB.observerNotes.find(x=>x.id===b.dataset.obsdone); if(!n) return; n.handled=true; n.handledBy=currentUser.name; n.handledAt=new Date().toISOString(); await persist(); renderObserverNotesTab(); renderNav(); });
+  document.querySelectorAll('[data-obsreply]').forEach(b=>b.onclick=async ()=>{
+    const n=DB.observerNotes.find(x=>x.id===b.dataset.obsreply); if(!n) return;
+    document.getElementById('modalRoot').innerHTML=`<div class="modal-overlay" id="overlay"><div class="modal" style="max-width:480px;"><div class="modal-head"><h3>رد على ملاحظة ${esc(n.by)}</h3><button class="modal-close" id="closeX">✕</button></div>
+      <div class="modal-body"><div class="muted" style="white-space:pre-wrap;margin-bottom:10px;">${esc(n.text)}</div><textarea id="obsReplyT" rows="4" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--ink);font-family:inherit;">${esc(n.reply||'')}</textarea></div>
+      <div class="modal-foot"><button class="btn btn-ghost" id="rCancel">إلغاء</button><button class="btn btn-primary" id="rSave">حفظ الرد</button></div></div></div>`;
+    document.getElementById('closeX').onclick=closeModal; document.getElementById('rCancel').onclick=closeModal;
+    document.getElementById('rSave').onclick=async ()=>{ n.reply=document.getElementById('obsReplyT').value.trim(); n.handled=true; n.handledBy=currentUser.name; n.handledAt=new Date().toISOString(); await persist(); closeModal(); renderObserverNotesTab(); renderNav(); };
+  });
+}
+
 /* ================= ROUTER ================= */
 function renderContent(){
   tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
@@ -4833,6 +4924,7 @@ function renderContent(){
   else if(currentTab==='shortageReports') renderShortagesTab();
   else if(currentTab==='whReport') renderWhReportTab();
   else if(currentTab==='lowStock') renderLowStockTab();
+  else if(currentTab==='observerNotes') renderObserverNotesTab();
   else if(currentTab==='customerOrders') renderExternalOrdersTab();
   else if(currentTab==='auditLog') renderAuditLogTab();
   else renderGenericTab(currentTab);
@@ -4973,7 +5065,7 @@ function renderAdminArea(){
   document.getElementById('userLogoutBtn').addEventListener('click', logoutUser);
 }
 
-const ROLE_LABELS = {admin:'أدمن', warehouse:'أمين مخزن الخامات', whman:'أمين مخزن التصنيع', whpack:'أمين مخزن التعبئة والتغليف', whfin:'أمين مخزن الإنتاج التام', cairo:'سيلز القاهرة', operation:'أوبريشن'};
+const ROLE_LABELS = {finance:'مراقب مالي', factory:'مدير المصنع', admin:'أدمن', warehouse:'أمين مخزن الخامات', whman:'أمين مخزن التصنيع', whpack:'أمين مخزن التعبئة والتغليف', whfin:'أمين مخزن الإنتاج التام', cairo:'سيلز القاهرة', operation:'أوبريشن'};
 
 function openAdminSettingsModal(){
   renderAdminSettingsModalContent();
@@ -5067,6 +5159,8 @@ function openUserEditModal(userId){
               <option value="whfin" ${u&&u.role==='whfin'?'selected':''}>أمين مخزن الإنتاج التام (مخزنه + استلام التحويلات)</option>
               <option value="operation" ${u&&u.role==='operation'?'selected':''}>أوبريشن (المخازن + طلبات القاهرة، بدون مشتريات)</option>
               <option value="cairo" ${u&&u.role==='cairo'?'selected':''}>سيلز القاهرة (طلبات القاهرة بس)</option>
+              <option value="finance" ${u&&u.role==='finance'?'selected':''}>مراقب مالي (يشوف كل حاجة + يكتب ملاحظات — من غير أي تعديل)</option>
+              <option value="factory" ${u&&u.role==='factory'?'selected':''}>مدير المصنع (يشوف كل حاجة + يكتب ملاحظات — من غير أي تعديل)</option>
             </select>
           </div>
         </div>
@@ -5497,6 +5591,10 @@ function logoutUser(){
 
 function enterApp(){
   isAdmin = (currentUser && currentUser.role==='admin');
+  document.body.classList.toggle('viewer-mode', isViewer());
+  let fb=document.getElementById('obsNoteFab');
+  if(isViewer()){ if(!fb){ fb=document.createElement('button'); fb.id='obsNoteFab'; fb.className='btn btn-gold'; fb.innerHTML='📝 اكتب ملاحظة'; fb.style.cssText='position:fixed;bottom:22px;left:22px;z-index:900;box-shadow:0 6px 18px rgba(0,0,0,.18);padding:12px 18px;'; fb.onclick=()=>openObserverNoteModal(); document.body.appendChild(fb);} fb.style.display=''; }
+  else if(fb) fb.style.display='none';
   currentTab = firstAllowedTab();
   document.getElementById('pageTitle').textContent = TITLES[currentTab][0];
   document.getElementById('pageSub').textContent = TITLES[currentTab][1];
