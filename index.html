@@ -609,7 +609,7 @@ body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 12-10 — v16</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 12-10 — v17</span></div>
   </aside>
 
   <div class="main">
@@ -1256,8 +1256,8 @@ const TABS = [
   {id:'dashboard', label:'لوحة القيادة', ic:'dashboard'},
   {id:'cairoRequests', label:'طلبات القاهرة', ic:'bell'},
   {id:'purchaseRequests', label:'طلبات مشتريات', ic:'orders'},
-  {id:'purchases', label:'المشتريات', ic:'download'},
   {id:'raw', label:'مخزن الخامات', ic:'raw'},
+  {id:'purchases', label:'المشتريات', ic:'download'},
   {id:'whManufacturing', label:'مخزن التصنيع', ic:'production'},
   {id:'whPackaging', label:'مخزن التعبئة والتغليف', ic:'box'},
   {id:'whFinished', label:'مخزن الإنتاج التام', ic:'spark'},
@@ -2022,6 +2022,8 @@ function renderGenericTab(tabId){
   ${tabId==='production' ? renderProductionSummary() : ''}
   ${(()=>{ const w = TABID_TO_WHID[tabId]; if(!w) return ''; const n = DB.transfers.filter(t=>t.toWarehouse===w && canReceive(t)).length;
       return n? `<div class="panel" style="padding:14px 18px;border-color:var(--warn);background:var(--warn-bg);margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">${svgIcon('alert')}<div style="flex:1"><strong>فيه ${n} تحويل جاي لمخزنك مستني تأكيد الاستلام.</strong></div><button class="btn btn-sm btn-primary" onclick="setTab('transfers')">راجع واستلم</button></div>` : ''; })()}
+  ${(()=>{ if(tabId!=='raw' || !canDecidePurchase()) return ''; const n=(DB.purchases||[]).filter(x=>purStatus(x)==='pending').length;
+      return n? `<div class="panel" style="padding:14px 18px;border-color:var(--warn);background:var(--warn-bg);margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">${svgIcon('alert')}<div style="flex:1"><strong>فيه ${n} مشتريات مستنية موافقتك</strong> — مش هتتضاف للرصيد غير لما توافق.</div><button class="btn btn-sm btn-primary" onclick="setTab('purchases')">راجع ووافق</button></div>` : ''; })()}
   ${subTabHtml}
   ${flavorsAlertHtml}
   <div class="panel">
