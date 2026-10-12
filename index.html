@@ -609,7 +609,7 @@ body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 12-10 — v15</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 12-10 — v16</span></div>
   </aside>
 
   <div class="main">
@@ -680,7 +680,7 @@ let currentTab = 'dashboard';
 /* ================= AUTH (يوزرين: أدمن / أمين مخزن) ================= */
 const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
-const WAREHOUSE_TABS = ['raw','whManufacturing','purchaseRequests','transfers','shortageReports','whReport','lowStock']; // أمين مخزن الخامات
+const WAREHOUSE_TABS = ['raw','whManufacturing','purchaseRequests','purchases','transfers','shortageReports','whReport','lowStock']; // أمين مخزن الخامات
 const ROLE_TABS = { // كل مخزن ليه أمين لوحده
   whman:  ['whManufacturing','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','waste'],
   whpack: ['whPackaging','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','waste'],
@@ -1313,7 +1313,7 @@ function renderNav(){
     else if(t.id==='shortageReports') count = (isAdmin ? (DB.shortageReports||[]).filter(r=>r.status==='pending').length : visibleShortages().filter(r=>r.status==='pending').length) || '';
     else if(t.id==='purchaseRequests') count = (DB.purchaseRequests||[]).filter(r=>r.status==='pending').length || '';
     else if(t.id==='cairoRequests') count = (DB.cairoRequests||[]).filter(r=>r.status!=='delivered').length || '';
-    else if(t.id==='purchases') count = DB.purchases.length;
+    else if(t.id==='purchases') count = DB.purchases.filter(x=>purStatus(x)==='pending').length || '';
     else if(t.id==='whManufacturing') count = DB.whManufacturing.length;
     else if(t.id==='whPackaging') count = DB.whPackaging.length;
     else if(t.id==='whFinished') count = DB.whFinished.length;
@@ -3470,14 +3470,14 @@ function renderPurchasesTab(){
     <div class="panel-head">
       <h2>المشتريات <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
       <div class="toolbar">
-        <button class="btn btn-ghost" id="addReturnBtn">+ تسجيل مرتجع</button>
-        <button class="btn btn-gold" id="addPurchaseBtn">+ تسجيل مشترى جديد</button>
+        ${isAdmin?`<button class="btn btn-ghost" id="addReturnBtn">+ تسجيل مرتجع</button>
+        <button class="btn btn-gold" id="addPurchaseBtn">+ تسجيل مشترى جديد</button>`:''}
       </div>
     </div>
     <div class="panel-body">
       ${list.length? `
       <div class="table-wrap"><table>
-        <thead><tr><th>التاريخ</th><th>النوع</th><th>الخامة</th><th>الكمية</th><th>المورد</th><th>ملاحظات</th><th></th></tr></thead>
+        <thead><tr><th>التاريخ</th><th>النوع</th><th>الخامة</th><th>الكمية</th><th>المورد</th><th>ملاحظات</th><th>الحالة</th><th></th></tr></thead>
         <tbody>
         ${list.map(p=>{
           const isReturn = p.kind==='return';
@@ -3489,7 +3489,9 @@ function renderPurchasesTab(){
             <td class="num" style="color:${isReturn?'var(--danger)':'var(--ok)'}">${isReturn?'−':'+'}${fmtNum(p.qty)}</td>
             <td>${p.supplier?esc(p.supplier):'<span class="muted">—</span>'}</td>
             <td class="muted">${p.notes?esc(p.notes):'—'}</td>
-            <td><button class="icon-btn danger" data-act="delete" data-id="${p.id}" title="حذف">${svgIcon('trash','sm')}</button></td>
+            <td><span class="pill ${PUR_ST[purStatus(p)].cls}">${PUR_ST[purStatus(p)].label}</span>${p.decidedBy?`<div class="muted" style="font-size:11px;margin-top:3px">${esc(byName(p.decidedBy))}${p.origQty!=null&&Number(p.origQty)!==Number(p.qty)?` — المسجّل كان ${fmtNum(p.origQty)}`:''}</div>`:''}</td>
+            <td style="white-space:nowrap">${purStatus(p)==='pending'&&canDecidePurchase()?`<button class="btn btn-primary btn-sm" data-act="purok" data-id="${p.id}">${isReturn?'تأكيد الخروج':'تأكيد الاستلام'}</button> <button class="btn btn-ghost btn-sm" data-act="purno" data-id="${p.id}">رفض</button>`:''}
+            ${isAdmin?`<button class="icon-btn danger" data-act="delete" data-id="${p.id}" title="حذف">${svgIcon('trash','sm')}</button>`:''}</td>
           </tr>`;
         }).join('')}
         </tbody>
@@ -3497,16 +3499,25 @@ function renderPurchasesTab(){
     </div>
   </div>`;
   document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
-  document.getElementById('addPurchaseBtn').addEventListener('click', ()=>openPurchaseModal('purchase'));
-  document.getElementById('addReturnBtn').addEventListener('click', ()=>openPurchaseModal('return'));
+  const apb=document.getElementById('addPurchaseBtn'); if(apb) apb.addEventListener('click', ()=>openPurchaseModal('purchase'));
+  const arb=document.getElementById('addReturnBtn'); if(arb) arb.addEventListener('click', ()=>openPurchaseModal('return'));
+  document.querySelectorAll('[data-act="purok"]').forEach(b=>b.addEventListener('click', ()=>openPurchaseDecide(b.dataset.id)));
+  document.querySelectorAll('[data-act="purno"]').forEach(b=>b.addEventListener('click', ()=>{
+    openConfirmModal('رفض السجل ده؟ مش هيتضاف/يتخصم أي حاجة من الرصيد.', async ()=>{
+      const p=DB.purchases.find(x=>x.id===b.dataset.id); if(!p||purStatus(p)!=='pending') return;
+      p.status='rejected'; p.decidedBy=userTag(); p.decidedAt=new Date().toISOString();
+      logAction(`رفض ${p.kind==='return'?'مرتجع':'شراء'} "${p.itemName}" (${fmtNum(p.qty)})`);
+      await persist(); renderPurchasesTab(); renderNav(); showToast('اترفض');
+    }, 'رفض');
+  }));
   document.querySelectorAll('[data-act="delete"]').forEach(b=>b.addEventListener('click', ()=>{
     const p = DB.purchases.find(x=>x.id===b.dataset.id);
     const isReturn = p && p.kind==='return';
     const msg = isReturn
       ? 'هل تريد حذف سجل هذا المرتجع؟ هترجع الكمية تلقائي لرصيد الخامة زي ما كانت قبل المرتجع.'
       : 'هل تريد حذف سجل هذا الشراء؟ هيترجع رصيد الخامة تلقائي زي ما كان قبل الشراء.';
-    openConfirmModal(msg, async ()=>{
-      if(p){
+    openConfirmModal(purStatus(p)==='approved'?msg:'هل تريد حذف السجل ده؟ (لسه ماأثرش على الرصيد)', async ()=>{
+      if(p && purStatus(p)==='approved'){
         const item = DB.raw.find(r=>r.id===p.itemId) || DB.raw.find(r=>r.name.trim()===p.itemName);
         if(item){
           const sign = isReturn ? 1 : -1; // مرتجع كان نقص من الرصيد، فحذفه يرجّعه بالزيادة، والعكس للشراء
@@ -3524,6 +3535,46 @@ function renderPurchasesTab(){
   }));
 }
 
+const PUR_ST={pending:{label:'مستني موافقة أمين الخامات',cls:'pill-warn'},approved:{label:'اتوافق ✓ — اتسمّع في الرصيد',cls:'pill-ok'},rejected:{label:'مرفوض',cls:'pill-danger'}};
+function purStatus(p){ return (p && p.status) || 'approved'; } // السجلات القديمة كانت بتتسمّع فورًا
+function canDecidePurchase(){ return currentUser && (currentUser.role==='warehouse' || currentUser.role==='admin'); }
+function openPurchaseDecide(id){
+  const p=DB.purchases.find(x=>x.id===id); if(!p) return;
+  const isReturn=p.kind==='return';
+  document.getElementById('modalRoot').innerHTML=`<div class="modal-overlay" id="overlay"><div class="modal" style="max-width:460px;">
+    <div class="modal-head"><h3>${isReturn?'تأكيد خروج مرتجع':'تأكيد استلام مشتريات'}</h3><button class="modal-close" id="closeX">✕</button></div>
+    <div class="modal-body">
+      <div style="margin-bottom:10px;"><b>${esc(p.itemName)}</b> — المسجّل: <b>${fmtNum(p.qty)}</b>${p.supplier?` — ${esc(p.supplier)}`:''}</div>
+      <div class="field"><label>الكمية ${isReturn?'اللي خرجت':'اللي وصلت'} فعلاً *</label><input type="number" step="0.01" id="pd_qty" value="${p.qty}"></div>
+      <div class="field"><label>ملاحظات (اختياري)</label><input type="text" id="pd_notes"></div>
+      <div class="muted" style="font-size:12px;">بعد التأكيد الكمية ${isReturn?'هتتخصم من':'هتتضاف لـ'} رصيد الخامة في مخزن الخامات.</div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button><button class="btn btn-primary" id="saveBtn">تأكيد</button></div></div></div>`;
+  const ov=document.getElementById('overlay'); ov.addEventListener('click',e=>{ if(e.target===ov) closeModal(); });
+  document.getElementById('closeX').onclick=closeModal; document.getElementById('cancelBtn').onclick=closeModal;
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const q=Number(document.getElementById('pd_qty').value); const n=document.getElementById('pd_notes').value.trim();
+    if(!(q>0)){ showToast('اكتب كمية صحيحة'); return; }
+    const cur=DB.purchases.find(x=>x.id===id);
+    if(!cur || purStatus(cur)!=='pending'){ closeModal(); showToast('السجل ده اتعامل معاه خلاص'); renderPurchasesTab(); return; }
+    let item=DB.raw.find(r=>r.id===cur.itemId) || DB.raw.find(r=>r.name.trim()===String(cur.itemName).trim());
+    if(!item){
+      if(isReturn){ showToast('الخامة دي مش موجودة في مخزن الخامات'); return; }
+      item={id:uid(), name:cur.itemName, category:'', supplier:cur.supplier||'', balance:0, history:[]}; DB.raw.unshift(item);
+    }
+    const sign=isReturn?-1:1;
+    item.balance=Math.round((Number(item.balance||0)+sign*q)*100)/100;
+    item.history=item.history||[];
+    const diff=Math.round((q-Number(cur.qty))*100)/100;
+    item.history.push({date:todayISO(), ts:new Date().toISOString(), type:isReturn?'مرتجع':'شراء', qty:q, notes:`${cur.supplier?(isReturn?'مرتجع لـ ':'مورد: ')+cur.supplier:''}${diff?` (المسجّل ${fmtNum(cur.qty)})`:''}${cur.notes?' — '+cur.notes:''}${n?' — '+n:''}`, refId:cur.id, by:userTag()});
+    // حذف السجل بعد كده بيرجّع الكمية الفعلية
+    cur.itemId=item.id; cur.itemName=item.name; cur.status='approved'; cur.actualQty=q; cur.origQty=cur.qty; cur.qty=q;
+    cur.decidedBy=userTag(); cur.decidedAt=new Date().toISOString(); if(n) cur.decideNotes=n;
+    logAction(`أكد ${isReturn?'خروج مرتجع':'استلام شراء'} "${item.name}" — ${fmtNum(q)}${diff?` (المسجّل ${fmtNum(cur.origQty)})`:''}`);
+    await persist(); closeModal(); renderPurchasesTab(); renderNav();
+    showToast(isReturn?'اتأكد — الكمية اتخصمت من الرصيد':'اتأكد — الكمية اتضافت للرصيد');
+  });
+}
 function openPurchaseModal(kind){
   kind = kind || 'purchase';
   const isReturn = kind==='return';
@@ -3559,24 +3610,17 @@ function openPurchaseModal(kind){
     const date = document.getElementById('f_date').value || todayISO();
     const notes = document.getElementById('f_notes').value.trim();
     if(!itemName || !qty || qty<=0){ showToast('اكتب اسم الخامة وكمية صحيحة'); return; }
-    let item = DB.raw.find(r=>r.name.trim()===itemName);
-    if(!item){
-      if(isReturn){ showToast('الخامة دي مش موجودة في مخزن الخامات أصلاً'); return; }
-      item = {id:uid(), name:itemName, category:'', supplier:supplier||'', balance:0, history:[]};
-      DB.raw.unshift(item);
-    }
+    const item = DB.raw.find(r=>r.name.trim()===itemName);
+    if(!item && isReturn){ showToast('الخامة دي مش موجودة في مخزن الخامات أصلاً'); return; }
     const recId = uid();
-    const sign = isReturn ? -1 : 1;
-    item.balance = Math.round((item.balance + sign*qty)*100)/100;
-    item.history = item.history || [];
-    item.history.push({date, type: isReturn?'مرتجع':'شراء', qty, notes: supplier?`${isReturn?'مرتجع لـ':'مورد:'} ${supplier}${notes?' — '+notes:''}`:notes, refId: recId, by: userTag()});
-    DB.purchases.unshift({id:recId, date, itemId:item.id, itemName: item.name, qty, supplier, notes, kind});
-    logAction(`سجّل ${isReturn?'مرتجع':'شراء'} "${item.name}" — ${fmtNum(qty)}${supplier?` (${supplier})`:''}`);
+    // مش بيأثر على الرصيد غير لما أمين مخزن الخامات يوافق
+    DB.purchases.unshift({id:recId, date, itemId:item?item.id:'', itemName: item?item.name:itemName, qty, supplier, notes, kind, status:'pending', createdBy:userTag(), createdAt:new Date().toISOString()});
+    logAction(`سجّل ${isReturn?'مرتجع':'شراء'} "${itemName}" — ${fmtNum(qty)}${supplier?` (${supplier})`:''} — مستني موافقة أمين مخزن الخامات`);
     await persist();
     closeModal();
     renderPurchasesTab();
     renderNav();
-    showToast(isReturn ? 'تم تسجيل المرتجع وتحديث رصيد الخامة' : 'تم تسجيل الشراء وتحديث رصيد الخامة في مخزن الخامات');
+    showToast('اتسجل — مستني موافقة أمين مخزن الخامات، والرصيد مش هيتغير غير بعد الموافقة');
   });
 }
 
