@@ -609,7 +609,7 @@ body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 11-10 — v14</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 12-10 — v15</span></div>
   </aside>
 
   <div class="main">
@@ -691,7 +691,7 @@ const ROLE_READONLY = { whman:['raw'], whpack:['raw'] };
 // فئات مخزن الخامات المسموح يشوفها الدور (لو مش موجود => كل الفئات)
 const ROLE_RAW_CATS = { whpack:['أكياس','عبوات','كراتين','استيكر'] };
 // المخازن اللي كل دور يقدر يحوّل ليها
-const ROLE_DEST = { warehouse:['manufacturing'], whman:['packaging'], whpack:['finished'], whfin:[] };
+const ROLE_DEST = { warehouse:['manufacturing','packaging'], whman:['packaging'], whpack:['finished'], whfin:[] };
 const VIEWER_ROLES=['finance','factory']; // مراقب مالي + مدير المصنع: عرض بس + ملاحظات
 function isViewer(){ return !!(currentUser && VIEWER_ROLES.includes(currentUser.role)); }
 function isReadOnlyTab(tabId){ if(isViewer()) return true; return !!(currentUser && ROLE_READONLY[currentUser.role] && ROLE_READONLY[currentUser.role].includes(tabId)); }
@@ -5153,7 +5153,7 @@ function openUserEditModal(userId){
           <div class="field"><label>الصلاحية *</label>
             <select id="f_userrole">
               <option value="admin" ${u&&u.role==='admin'?'selected':''}>أدمن (كل الصلاحيات)</option>
-              <option value="warehouse" ${u&&u.role==='warehouse'?'selected':''}>أمين مخزن الخامات (الخامات + التصنيع + طلبات المشتريات + تحويل للتصنيع)</option>
+              <option value="warehouse" ${u&&u.role==='warehouse'?'selected':''}>أمين مخزن الخامات (الخامات + التصنيع + طلبات المشتريات + تحويل للتصنيع أو التعبئة والتغليف)</option>
               <option value="whman" ${u&&u.role==='whman'?'selected':''}>أمين مخزن التصنيع (مخزنه + عرض الخامات + طلبات المشتريات + تحويل للتعبئة)</option>
               <option value="whpack" ${u&&u.role==='whpack'?'selected':''}>أمين مخزن التعبئة والتغليف (مخزنه + عرض الأكياس والعبوات والكراتين والاستيكر + طلبات المشتريات + تحويل للتام)</option>
               <option value="whfin" ${u&&u.role==='whfin'?'selected':''}>أمين مخزن الإنتاج التام (مخزنه + استلام التحويلات)</option>
