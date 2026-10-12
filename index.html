@@ -609,7 +609,7 @@ body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 12-10 — v17</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 12-10 — v18</span></div>
   </aside>
 
   <div class="main">
@@ -1261,7 +1261,7 @@ const TABS = [
   {id:'whManufacturing', label:'مخزن التصنيع', ic:'production'},
   {id:'whPackaging', label:'مخزن التعبئة والتغليف', ic:'box'},
   {id:'whFinished', label:'مخزن الإنتاج التام', ic:'spark'},
-  {id:'transfers', label:'التحويلات المخزنية', ic:'history'},
+  {id:'transfers', label:'إذن صرف', ic:'history'},
   {id:'shortageReports', label:'تقارير العجز', ic:'alert'},
   {id:'whReport', label:'تقرير المخازن', ic:'card'},
   {id:'lowStock', label:'تقرير حد الأمان', ic:'alert'},
@@ -1289,7 +1289,7 @@ const TITLES = {
   observerNotes:['ملاحظات المراقبة','ملاحظات المراقب المالي ومدير المصنع على السيستم'],
   lowStock:['تقرير حد الأمان','الأصناف اللي رصيدها وصل لحد الأمان أو أقل — لكل صنف حد أمان خاص بيه'],
   whReport:['تقرير المخازن','كل مخزن: ضاف كام، صرف كام، اتحوّل منه وليه كام، ورصيده أول وآخر الفترة'],
-  transfers:['التحويلات المخزنية','تسجيل كل تحويل بين المخازن بدل الورق: من مخزن إلى مخزن'],
+  transfers:['إذن صرف','أذون الصرف بين المخازن بدل الورق: من مخزن إلى مخزن'],
   suppliers:['الموردين','بيانات التواصل والأسعار لكل مورد'],
   itemCard:['كارتة الصنف','رصيد افتتاحي، إضافة، صرف، ورصيد نهائي لأي صنف في أي مخزن'],
   customerOrders:['أوردرات العملاء','استورد ملف JSON من نظام إنشاء الأوردرات عشان تشوفهم هنا'],
@@ -3671,8 +3671,8 @@ function renderTransfersTab(){
     ${svgIcon('alert')}<div><strong>فيه ${incoming} تحويل مستني تأكيد استلامك.</strong> راجع الكمية اللي وصلت فعلاً واضغط "تأكيد الاستلام".</div></div>` : ''}
   <div class="panel">
     <div class="panel-head">
-      <h2>التحويلات المخزنية <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
-      <div class="toolbar">${canSend? `<button class="btn btn-gold" id="addTransferBtn">+ إرسال تحويل</button>`:''}</div>
+      <h2>أذون الصرف <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
+      <div class="toolbar">${canSend? `<button class="btn btn-gold" id="addTransferBtn">+ إذن صرف جديد</button>`:''}</div>
     </div>
     <div class="panel-body">
       ${list.length? `
@@ -3828,7 +3828,7 @@ function openAdminTransferEdit(id){
   document.getElementById('modalRoot').innerHTML = `
     <div class="modal-overlay" id="overlay">
       <div class="modal" style="max-width:720px;">
-        <div class="modal-head"><h3>${adminMode?'تعديل تحويل (أدمن)':'تعديل تحويل قبل الاستلام'}</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-head"><h3>${adminMode?'تعديل إذن صرف (أدمن)':'تعديل إذن صرف قبل الاستلام'}</h3><button class="modal-close" id="closeX">✕</button></div>
         <div class="modal-body">
           <div style="display:flex;gap:12px;flex-wrap:wrap;">
             <div class="field" style="flex:1;min-width:150px;"><label>من مخزن</label><select id="ae_from" ${adminMode?'':'disabled'}>${whOpts(t.fromWarehouse)}</select></div>
@@ -3937,7 +3937,7 @@ function openReceiveModal(id){
   document.getElementById('modalRoot').innerHTML = `
     <div class="modal-overlay" id="overlay">
       <div class="modal">
-        <div class="modal-head"><h3>تأكيد استلام تحويل</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-head"><h3>تأكيد استلام إذن صرف</h3><button class="modal-close" id="closeX">✕</button></div>
         <div class="modal-body">
           <div class="muted" style="font-size:12.5px;">من <b>${esc(whLabel(t.fromWarehouse))}</b> إلى <b>${esc(whLabel(t.toWarehouse))}</b> — أرسله ${esc(t.sentBy||'—')}</div>
           ${lines.map((ln,i)=>`
@@ -4055,7 +4055,7 @@ function openTransferModal(prefill, editId){
   document.getElementById('modalRoot').innerHTML = `
     <div class="modal-overlay" id="overlay">
       <div class="modal" style="max-width:640px;">
-        <div class="modal-head"><h3>${draft?'تعديل مسودة تحويل':'تحويل مخزني جديد'}</h3><button class="modal-close" id="closeX">✕</button></div>
+        <div class="modal-head"><h3>${draft?'تعديل مسودة إذن صرف':'إذن صرف جديد'}</h3><button class="modal-close" id="closeX">✕</button></div>
         <div class="modal-body">
           <div style="display:flex;gap:12px;flex-wrap:wrap;">
             <div class="field" style="flex:1;min-width:170px;"><label>من مخزن *</label>
