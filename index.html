@@ -258,7 +258,7 @@ tr.detail-row.dim td{color:var(--ink-soft);}
 
 /* print report (production PDF) */
 #printArea{display:none;}
-body.viewer-mode #content [data-act]:not([data-act="history"]):not([data-act="detail"]):not([data-act="view"]):not([data-act="wa"]),
+body.viewer-mode #content [data-act]:not([data-act="history"]):not([data-act="detail"]):not([data-act="view"]):not([data-act="wa"]):not([data-act="photos"]),
 body.viewer-mode #addBtn, body.viewer-mode [id^="add"][id$="Btn"], body.viewer-mode #importOrdersBtn, body.viewer-mode #doDispatchBtn,
 body.viewer-mode #undoDispatchBtn, body.viewer-mode #lsEdit, body.viewer-mode #lsSave, body.viewer-mode #thresholdInput, body.viewer-mode #applyThreshold,
 body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer-mode .modal #confirmBtn, body.viewer-mode .btn-danger{display:none !important;}
@@ -609,7 +609,7 @@ body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 12-10 — v18</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 14-10 — v19</span></div>
   </aside>
 
   <div class="main">
@@ -3701,6 +3701,8 @@ function renderTransfersTab(){
             if(!isAdmin) actions.push(`<button class="btn btn-sm btn-ghost" data-act="adminedit" data-id="${t.id}">تعديل</button>`);
             actions.push(`<button class="btn btn-sm btn-ghost" data-act="cancel" data-id="${t.id}">إلغاء الإرسال</button>`);
           }
+          const np=(t.photos||[]).length;
+          if(np || canAttachTrPhoto(t)) actions.unshift(`<button class="btn btn-sm btn-ghost" data-act="photos" data-id="${t.id}" title="صور إذن الصرف">📷 ${np||'+'}</button>`);
           if(isAdmin && trStatus(t)!=='draft') actions.push(`<button class="btn btn-sm btn-ghost" data-act="adminedit" data-id="${t.id}">تعديل</button>`);
           if(isAdmin && trStatus(t)!=='draft') actions.push(`<button class="icon-btn danger" data-act="delete" data-id="${t.id}" title="حذف">${svgIcon('trash','sm')}</button>`);
           return `
@@ -3724,6 +3726,7 @@ function renderTransfersTab(){
   const addBtn = document.getElementById('addTransferBtn');
   if(addBtn) addBtn.addEventListener('click', ()=>openTransferModal());
   document.querySelectorAll('[data-act="editdraft"]').forEach(b=>b.addEventListener('click', ()=>openTransferModal(null, b.dataset.id)));
+  document.querySelectorAll('[data-act="photos"]').forEach(b=>b.addEventListener('click', ()=>openTrPhotos(b.dataset.id)));
   document.querySelectorAll('[data-act="senddraft"]').forEach(b=>b.addEventListener('click', ()=>{
     openConfirmModal('متأكد إن التحويل تمام؟ الكميات هتتخصم من مخزنك وتتسلم للمخزن التاني، ومش هتقدر تعدّلها بعد كده.', async ()=>{
       const t = DB.transfers.find(x=>x.id===b.dataset.id);
@@ -4074,6 +4077,10 @@ function openTransferModal(prefill, editId){
             <datalist id="trItemsList"></datalist>
           </div>
           <div class="field"><label>ملاحظات (اختياري)</label><input type="text" id="f_notes" placeholder="مثال: أوردر السعودية" value="${draft?esc(draft.notes||''):''}"></div>
+          <div class="field"><label>📷 صورة إذن الصرف (الورقة) <span class="muted" style="font-weight:500" id="trPhotoHint"></span></label>
+            <input type="file" id="f_trPhotos" accept="image/*" multiple>
+            <div class="muted" style="font-size:11.5px;margin-top:4px;">من الموبايل تقدر تصوّر على طول. ${draft&&(draft.photos||[]).length?`فيه ${draft.photos.length} صورة متضافة قبل كده.`:''}</div>
+            <div id="trPhotoPrev" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;"></div></div>
           <div class="muted" style="font-size:12px;"><b>حفظ كمسودة:</b> التحويل بيتسجل وتقدر تعدّله براحتك، ومفيش خصم من الرصيد.<br><b>تمام — سلّم:</b> الكميات بتتخصم من مخزنك وتتبعت للمخزن التاني، ومبتدخلش عنده غير لما أمينه يأكد الاستلام.</div>
         </div>
         <div class="modal-foot">
@@ -4155,8 +4162,19 @@ function openTransferModal(prefill, editId){
     }
     return {fromWh, toWh, notes, rows};
   }
+  const phIn=document.getElementById('f_trPhotos');
+  const updHint=()=>{ const req=photoRequired(fromWhSel.value); document.getElementById('trPhotoHint').textContent = req?'(مطلوبة عند التسليم)':'(اختياري)'; };
+  fromWhSel.addEventListener('change',updHint); updHint();
+  phIn.addEventListener('change',()=>{ const pv=document.getElementById('trPhotoPrev'); pv.innerHTML=''; [...phIn.files].forEach(f=>{ const im=document.createElement('img'); im.src=URL.createObjectURL(f); im.style.cssText='width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border)'; pv.appendChild(im); }); });
   async function save(asDraft){
     const d = collect(); if(!d) return;
+    const files=[...phIn.files];
+    if(!asDraft && photoRequired(d.fromWh) && !files.length && !(draft && (draft.photos||[]).length)){ showToast('ارفع صورة إذن الصرف الأول'); return; }
+    let newPhotos=[];
+    if(files.length){
+      document.querySelectorAll('#saveBtn,#draftBtn').forEach(b=>{ b.disabled=true; }); const sbt=document.getElementById(asDraft?'draftBtn':'saveBtn'); if(sbt) sbt.textContent='جاري رفع الصور…';
+      try{ newPhotos = await uploadPhotos(files); }catch(e){ console.error(e); document.querySelectorAll('#saveBtn,#draftBtn').forEach(b=>{ b.disabled=false; }); if(sbt) sbt.textContent=asDraft?'حفظ كمسودة':'تمام — سلّم'; showToast('رفع الصورة فشل — اتأكد من النت وجرب تاني'); return; }
+    }
     let t = draft;
     if(t){
       t.toWarehouse = d.toWh; t.notes = d.notes; t.lines = d.rows;
@@ -4165,6 +4183,7 @@ function openTransferModal(prefill, editId){
            draftBy:userTag(), draftAt:new Date().toISOString(), lines:d.rows};
       DB.transfers.unshift(t);
     }
+    if(newPhotos.length) t.photos=[...(t.photos||[]), ...newPhotos];
     if(asDraft){
       logAction(`${draft?'عدّل':'كتب'} مسودة تحويل من ${whLabel(d.fromWh)} إلى ${whLabel(d.toWh)}`);
     } else {
@@ -4956,6 +4975,71 @@ function renderObserverNotesTab(){
     document.getElementById('closeX').onclick=closeModal; document.getElementById('rCancel').onclick=closeModal;
     document.getElementById('rSave').onclick=async ()=>{ n.reply=document.getElementById('obsReplyT').value.trim(); n.handled=true; n.handledBy=currentUser.name; n.handledAt=new Date().toISOString(); await persist(); closeModal(); renderObserverNotesTab(); renderNav(); };
   });
+}
+
+/* ================= صور أذون الصرف =================
+   كل صورة بتتضغط وتتحفظ في مستند لوحدها على Firebase (عشان مستند التحويلات ميتقلش) */
+function photoRequired(fromWh){ return fromWh==='raw' && currentUser && currentUser.role==='warehouse'; }
+function canAttachTrPhoto(t){ return !isViewer() && (isAdmin || myWarehouse()===t.fromWarehouse); }
+function imgKey(id){ return STORAGE_KEY+'__img__'+id; }
+function compressImage(file){
+  return new Promise((res,rej)=>{
+    const img=new Image(); const url=URL.createObjectURL(file);
+    img.onload=()=>{ let max=1600, q=0.72, out='';
+      for(let i=0;i<6;i++){
+        const sc=Math.min(1, max/Math.max(img.width,img.height)); const c=document.createElement('canvas');
+        c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
+        c.getContext('2d').drawImage(img,0,0,c.width,c.height); out=c.toDataURL('image/jpeg',q);
+        if(out.length<700*1024) break; max=Math.round(max*0.8); q=Math.max(0.45,q-0.08);
+      }
+      URL.revokeObjectURL(url); res(out); };
+    img.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error('IMG_LOAD')); };
+    img.src=url;
+  });
+}
+async function uploadPhotos(files){
+  const out=[];
+  for(const f of files){
+    const data=await compressImage(f); const id=uid();
+    await StorageAPI.set(imgKey(id), data);
+    out.push({id, ts:new Date().toISOString(), by:userTag()});
+  }
+  return out;
+}
+const PHOTO_CACHE={};
+async function loadPhoto(id){ if(PHOTO_CACHE[id]) return PHOTO_CACHE[id]; const r=await StorageAPI.get(imgKey(id)); const v=r&&r.value; if(v) PHOTO_CACHE[id]=v; return v; }
+function openPhotoFull(data){ const w=window.open(); if(w){ w.document.write(`<title>إذن صرف</title><body style="margin:0;background:#111;display:flex;justify-content:center"><img src="${data}" style="max-width:100%;height:auto"></body>`); w.document.close(); } }
+function openTrPhotos(id){
+  const t=DB.transfers.find(x=>x.id===id); if(!t) return;
+  const can=canAttachTrPhoto(t);
+  const photos=t.photos||[];
+  document.getElementById('modalRoot').innerHTML=`<div class="modal-overlay" id="overlay"><div class="modal" style="max-width:640px;">
+    <div class="modal-head"><h3>صور إذن الصرف — ${esc(whLabel(t.fromWarehouse))} ← ${esc(whLabel(t.toWarehouse))}</h3><button class="modal-close" id="closeX">✕</button></div>
+    <div class="modal-body">
+      <div id="phGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
+        ${photos.length?photos.map(p=>`<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg)">
+          <div data-ph="${p.id}" style="height:140px;display:flex;align-items:center;justify-content:center;cursor:pointer" class="muted">جاري التحميل…</div>
+          <div style="padding:6px 8px;font-size:11px" class="muted">${fmtDateTimeAr(p.ts)}<br>${esc(byName(p.by))}${isAdmin?` <a href="#" data-phdel="${p.id}" style="color:var(--danger)">حذف</a>`:''}</div></div>`).join(''):'<div class="muted">مفيش صور لسه</div>'}
+      </div>
+      ${can?`<div class="field" style="margin-top:14px"><label>إضافة صور</label><input type="file" id="phAdd" accept="image/*" multiple></div>`:''}
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="phClose">قفل</button>${can?`<button class="btn btn-primary" id="phUp">رفع الصور</button>`:''}</div></div></div>`;
+  const ov=document.getElementById('overlay'); ov.addEventListener('click',e=>{ if(e.target===ov) closeModal(); });
+  document.getElementById('closeX').onclick=closeModal; document.getElementById('phClose').onclick=closeModal;
+  document.querySelectorAll('[data-ph]').forEach(async el=>{
+    try{ const d=await loadPhoto(el.dataset.ph); if(!d){ el.textContent='الصورة مش موجودة'; return; }
+      el.innerHTML=`<img src="${d}" style="width:100%;height:140px;object-fit:cover">`; el.onclick=()=>openPhotoFull(d);
+    }catch(e){ el.textContent='تعذر التحميل'; }
+  });
+  document.querySelectorAll('[data-phdel]').forEach(a=>a.onclick=async e=>{ e.preventDefault();
+    t.photos=(t.photos||[]).filter(p=>p.id!==a.dataset.phdel); logAction('حذف صورة إذن صرف'); await persist(); openTrPhotos(id); renderTransfersTab(); });
+  const up=document.getElementById('phUp');
+  if(up) up.onclick=async ()=>{
+    const files=[...document.getElementById('phAdd').files]; if(!files.length){ showToast('اختار صورة'); return; }
+    up.disabled=true; up.textContent='جاري الرفع…';
+    try{ const np=await uploadPhotos(files); t.photos=[...(t.photos||[]), ...np]; logAction(`رفع ${np.length} صورة لإذن صرف من ${whLabel(t.fromWarehouse)}`); await persist(); showToast('الصور اترفعت'); openTrPhotos(id); renderTransfersTab(); }
+    catch(e){ console.error(e); showToast('رفع الصورة فشل — اتأكد من النت'); up.disabled=false; up.textContent='رفع الصور'; }
+  };
 }
 
 /* ================= ROUTER ================= */
