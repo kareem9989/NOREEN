@@ -609,7 +609,7 @@ body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 14-10 — v19</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 15-10 — v20</span></div>
   </aside>
 
   <div class="main">
@@ -3677,7 +3677,7 @@ function renderTransfersTab(){
     <div class="panel-body">
       ${list.length? `
       <div class="table-wrap"><table>
-        <thead><tr><th>تاريخ الإرسال</th><th>من</th><th>إلى</th><th>الصنف</th><th>المرسل</th><th>المستلم فعلاً</th><th>الحالة</th><th>أرسله / استلمه</th><th></th></tr></thead>
+        <thead><tr><th>تاريخ الإذن</th><th>من</th><th>إلى</th><th>الصنف</th><th>المرسل</th><th>المستلم فعلاً</th><th>الحالة</th><th>أرسله / استلمه</th><th></th></tr></thead>
         <tbody>
         ${list.map(t=>{
           const st = TR_STATUS[trStatus(t)];
@@ -3702,12 +3702,16 @@ function renderTransfersTab(){
             actions.push(`<button class="btn btn-sm btn-ghost" data-act="cancel" data-id="${t.id}">إلغاء الإرسال</button>`);
           }
           const np=(t.photos||[]).length;
+          if(canEditTrDate(t) && trStatus(t)!=='draft') actions.push(`<button class="btn btn-sm btn-ghost" data-act="trdate" data-id="${t.id}" title="تعديل تاريخ الإذن">📅 التاريخ</button>`);
           if(np || canAttachTrPhoto(t)) actions.unshift(`<button class="btn btn-sm btn-ghost" data-act="photos" data-id="${t.id}" title="صور إذن الصرف">📷 ${np||'+'}</button>`);
           if(isAdmin && trStatus(t)!=='draft') actions.push(`<button class="btn btn-sm btn-ghost" data-act="adminedit" data-id="${t.id}">تعديل</button>`);
           if(isAdmin && trStatus(t)!=='draft') actions.push(`<button class="icon-btn danger" data-act="delete" data-id="${t.id}" title="حذف">${svgIcon('trash','sm')}</button>`);
           return `
           <tr data-id="${t.id}">
-            <td>${t.sentAt? fmtDateTimeAr(t.sentAt) : (t.draftAt? `<span class="muted">اتكتبت ${fmtDateTimeAr(t.draftAt)}</span>` : fmtDateAr(t.date))}</td>
+            <td><div style="font-weight:800">${fmtDateAr(trDocDate(t))}</div>
+              <div class="muted" style="font-size:11px">اتسجل: ${t.sentAt? fmtDateTimeAr(t.sentAt) : (t.draftAt? fmtDateTimeAr(t.draftAt)+' (مسودة)' : fmtDateAr(t.date))}</div>
+              ${(t.dateEdits||[]).map(e=>`<div style="font-size:11px;color:var(--warn)">اتعدل التاريخ من ${fmtDateAr(e.from)} لـ ${fmtDateAr(e.to)} — ${fmtDateTimeAr(e.at)} (${esc(byName(e.by))})</div>`).join('')}
+              ${t.editedAt?`<div style="font-size:11px;color:var(--warn)">اتعدل: ${fmtDateTimeAr(t.editedAt)}</div>`:''}</td>
             <td><span class="pill pill-navy">${esc(whLabel(t.fromWarehouse))}</span></td>
             <td><span class="pill pill-navy">${esc(whLabel(t.toWarehouse))}</span></td>
             <td style="font-weight:700">${itemLabel}${t.notes?`<div class="muted" style="font-size:11.5px;font-weight:500;">${esc(t.notes)}</div>`:''}</td>
@@ -3727,6 +3731,7 @@ function renderTransfersTab(){
   if(addBtn) addBtn.addEventListener('click', ()=>openTransferModal());
   document.querySelectorAll('[data-act="editdraft"]').forEach(b=>b.addEventListener('click', ()=>openTransferModal(null, b.dataset.id)));
   document.querySelectorAll('[data-act="photos"]').forEach(b=>b.addEventListener('click', ()=>openTrPhotos(b.dataset.id)));
+  document.querySelectorAll('[data-act="trdate"]').forEach(b=>b.addEventListener('click', ()=>openTrDateEdit(b.dataset.id)));
   document.querySelectorAll('[data-act="senddraft"]').forEach(b=>b.addEventListener('click', ()=>{
     openConfirmModal('متأكد إن التحويل تمام؟ الكميات هتتخصم من مخزنك وتتسلم للمخزن التاني، ومش هتقدر تعدّلها بعد كده.', async ()=>{
       const t = DB.transfers.find(x=>x.id===b.dataset.id);
@@ -4076,6 +4081,7 @@ function openTransferModal(prefill, editId){
             <button type="button" class="btn btn-ghost btn-sm" id="trAddRow" style="margin-top:8px;">+ صنف تاني</button>
             <datalist id="trItemsList"></datalist>
           </div>
+          <div class="field"><label>📅 تاريخ الإذن (التاريخ اللي على الورقة)</label><input type="date" id="f_docDate" value="${draft?(draft.docDate||draft.date||todayISO()):todayISO()}" max="${todayISO()}"></div>
           <div class="field"><label>ملاحظات (اختياري)</label><input type="text" id="f_notes" placeholder="مثال: أوردر السعودية" value="${draft?esc(draft.notes||''):''}"></div>
           <div class="field"><label>📷 صورة إذن الصرف (الورقة) <span class="muted" style="font-weight:500" id="trPhotoHint"></span></label>
             <input type="file" id="f_trPhotos" accept="image/*" multiple>
@@ -4184,6 +4190,9 @@ function openTransferModal(prefill, editId){
       DB.transfers.unshift(t);
     }
     if(newPhotos.length) t.photos=[...(t.photos||[]), ...newPhotos];
+    const dd=(document.getElementById('f_docDate')||{}).value || todayISO();
+    if(t.docDate && t.docDate!==dd){ (t.dateEdits=t.dateEdits||[]).push({from:t.docDate,to:dd,by:userTag(),at:new Date().toISOString()}); }
+    t.docDate=dd;
     if(asDraft){
       logAction(`${draft?'عدّل':'كتب'} مسودة تحويل من ${whLabel(d.fromWh)} إلى ${whLabel(d.toWh)}`);
     } else {
@@ -4618,8 +4627,8 @@ function wastePeriodText(R,S){
 }
 
 function trDetailTable(L, forPrint){
-  return `<table><thead><tr><th>تاريخ التحويل</th><th>تاريخ الاستلام</th><th>الاتجاه</th><th>المخزن التاني</th><th>الصنف</th><th>الكمية</th><th>اتحوّل لـ / جه من</th><th>الحالة</th><th>أرسل</th><th>استلم</th></tr></thead><tbody>
-  ${L.map(x=>`<tr><td>${x.sent?fmtDateTimeAr(x.sent):'—'}</td><td>${x.recv?fmtDateTimeAr(x.recv):(x.dir==='in'?'—':'<span class="muted">لسه</span>')}</td><td>${forPrint?(x.dir==='in'?'وارد':x.dir==='pend'?'في الطريق':'صادر'):`<span class="pill ${x.dir==='in'?'pill-navy':x.dir==='pend'?'pill-danger':'pill-warn'}">${x.dir==='in'?'وارد':x.dir==='pend'?'جاي (في الطريق)':'صادر'}</span>`}</td><td>${esc(x.other)}</td><td style="font-weight:700">${esc(x.item)}</td><td class="num" style="font-weight:800">${fmtNum(x.qty)}</td><td class="muted">${x.toItem?`${esc(x.toItem)} (${fmtNum(x.toQty)})`:'—'}</td><td>${esc(x.status)}</td><td>${esc(byName(x.by))||'—'}</td><td>${esc(byName(x.rec))||'—'}</td></tr>`).join('')}
+  return `<table><thead><tr><th>تاريخ الإذن</th><th>تاريخ الاستلام</th><th>الاتجاه</th><th>المخزن التاني</th><th>الصنف</th><th>الكمية</th><th>اتحوّل لـ / جه من</th><th>الحالة</th><th>أرسل</th><th>استلم</th></tr></thead><tbody>
+  ${L.map(x=>`<tr><td>${x.sent?(String(x.sent).length<=10?fmtDateAr(x.sent):fmtDateTimeAr(x.sent)):'—'}</td><td>${x.recv?fmtDateTimeAr(x.recv):(x.dir==='in'?'—':'<span class="muted">لسه</span>')}</td><td>${forPrint?(x.dir==='in'?'وارد':x.dir==='pend'?'في الطريق':'صادر'):`<span class="pill ${x.dir==='in'?'pill-navy':x.dir==='pend'?'pill-danger':'pill-warn'}">${x.dir==='in'?'وارد':x.dir==='pend'?'جاي (في الطريق)':'صادر'}</span>`}</td><td>${esc(x.other)}</td><td style="font-weight:700">${esc(x.item)}</td><td class="num" style="font-weight:800">${fmtNum(x.qty)}</td><td class="muted">${x.toItem?`${esc(x.toItem)} (${fmtNum(x.toQty)})`:'—'}</td><td>${esc(x.status)}</td><td>${esc(byName(x.by))||'—'}</td><td>${esc(byName(x.rec))||'—'}</td></tr>`).join('')}
   </tbody></table>`;
 }
 function trDetailHtml(R, q){
@@ -4761,16 +4770,16 @@ function buildWhReport(whId, from, to){
   DB.transfers.forEach(t=>{
     const st=trStatus(t); if(st==='draft'||st==='rejected') return;
     const inR=(x)=>{ const d=String(x||'').slice(0,10); return d && !((from&&d<from)||(to&&d>to)); };
-    const sentOk=inR(t.sentAt||t.date), recOk=inR(t.receivedAt||t.sentAt||t.date);
+    const sentOk=inR(trDocDate(t)), recOk=inR(t.receivedAt||t.sentAt||t.date);
     trLines(t).forEach(ln=>{
       if(t.toWarehouse===whId && st==='pending' && sentOk){
-        trRows.push({sent:t.sentAt||t.date, recv:'', ts:t.sentAt||t.date, dir:'pend', other:whLabel(t.fromWarehouse), item:ln.fromItemName||'—', qty:Number(ln.fromQty||0), toItem:'', toQty:0, status:'في الطريق — لسه ماتستلمش', by:t.sentBy, rec:''});
+        trRows.push({sent:trDocDate(t), recv:'', ts:t.sentAt||t.date, dir:'pend', other:whLabel(t.fromWarehouse), item:ln.fromItemName||'—', qty:Number(ln.fromQty||0), toItem:'', toQty:0, status:'في الطريق — لسه ماتستلمش', by:t.sentBy, rec:''});
         return;
       }
       if(t.fromWarehouse===whId && sentOk){ const k='إلى '+whLabel(t.toWarehouse); const q=Number(ln.fromQty||0); flows[k]=(flows[k]||0)+q;
-        trRows.push({sent:t.sentAt||t.date, recv:t.receivedAt||'', ts:t.sentAt||t.date, dir:'out', other:whLabel(t.toWarehouse), item:ln.fromItemName||'—', qty:q, toItem:ln.toItemName||'', toQty:Number(ln.toQty||0), status:ST[st]||st, by:t.sentBy, rec:t.receivedBy}); }
+        trRows.push({sent:trDocDate(t), recv:t.receivedAt||'', ts:t.sentAt||t.date, dir:'out', other:whLabel(t.toWarehouse), item:ln.fromItemName||'—', qty:q, toItem:ln.toItemName||'', toQty:Number(ln.toQty||0), status:ST[st]||st, by:t.sentBy, rec:t.receivedBy}); }
       if(t.toWarehouse===whId && st==='received' && recOk){ const k='من '+whLabel(t.fromWarehouse); const q=Number(ln.toQty||0); flows[k]=(flows[k]||0)+q;
-        trRows.push({sent:t.sentAt||t.date, recv:t.receivedAt||'', ts:t.receivedAt||t.sentAt||t.date, dir:'in', other:whLabel(t.fromWarehouse), item:ln.toItemName||'—', qty:q, toItem:ln.fromItemName||'', toQty:Number(ln.fromQty||0), status:ST[st], by:t.sentBy, rec:t.receivedBy}); }
+        trRows.push({sent:trDocDate(t), recv:t.receivedAt||'', ts:t.receivedAt||t.sentAt||t.date, dir:'in', other:whLabel(t.fromWarehouse), item:ln.toItemName||'—', qty:q, toItem:ln.fromItemName||'', toQty:Number(ln.fromQty||0), status:ST[st], by:t.sentBy, rec:t.receivedBy}); }
     });
   });
   trRows.sort((a,b)=>String(b.ts||'').localeCompare(String(a.ts||'')));
@@ -4974,6 +4983,30 @@ function renderObserverNotesTab(){
       <div class="modal-foot"><button class="btn btn-ghost" id="rCancel">إلغاء</button><button class="btn btn-primary" id="rSave">حفظ الرد</button></div></div></div>`;
     document.getElementById('closeX').onclick=closeModal; document.getElementById('rCancel').onclick=closeModal;
     document.getElementById('rSave').onclick=async ()=>{ n.reply=document.getElementById('obsReplyT').value.trim(); n.handled=true; n.handledBy=currentUser.name; n.handledAt=new Date().toISOString(); await persist(); closeModal(); renderObserverNotesTab(); renderNav(); };
+  });
+}
+
+/* ================= تاريخ إذن الصرف ================= */
+function trDocDate(t){ return t.docDate || String(t.sentAt||t.date||'').slice(0,10); }
+function canEditTrDate(t){ return !isViewer() && (isAdmin || (currentUser && currentUser.role==='warehouse' && t.fromWarehouse==='raw')); }
+function openTrDateEdit(id){
+  const t=DB.transfers.find(x=>x.id===id); if(!t) return;
+  document.getElementById('modalRoot').innerHTML=`<div class="modal-overlay" id="overlay"><div class="modal" style="max-width:420px;">
+    <div class="modal-head"><h3>تعديل تاريخ الإذن</h3><button class="modal-close" id="closeX">✕</button></div>
+    <div class="modal-body">
+      <div class="muted" style="font-size:12.5px;margin-bottom:10px;">تاريخ التسجيل على السيستم (${t.sentAt?fmtDateTimeAr(t.sentAt):fmtDateAr(t.date)}) مش هيتغير — التعديل هيتكتب في سجل الإذن.</div>
+      <div class="field"><label>تاريخ الإذن</label><input type="date" id="td_date" value="${trDocDate(t)}" max="${todayISO()}"></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button><button class="btn btn-primary" id="saveBtn">حفظ</button></div></div></div>`;
+  const ov=document.getElementById('overlay'); ov.addEventListener('click',e=>{ if(e.target===ov) closeModal(); });
+  document.getElementById('closeX').onclick=closeModal; document.getElementById('cancelBtn').onclick=closeModal;
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const v=document.getElementById('td_date').value; if(!v){ showToast('اختار التاريخ'); return; }
+    const old=trDocDate(t); if(v===old){ closeModal(); return; }
+    (t.dateEdits=t.dateEdits||[]).push({from:old,to:v,by:userTag(),at:new Date().toISOString()});
+    t.docDate=v;
+    logAction(`عدّل تاريخ إذن صرف (${whLabel(t.fromWarehouse)} ← ${whLabel(t.toWarehouse)}) من ${old} لـ ${v}`);
+    await persist(); closeModal(); renderTransfersTab(); showToast('اتعدل تاريخ الإذن');
   });
 }
 
