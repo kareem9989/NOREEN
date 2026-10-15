@@ -609,7 +609,7 @@ body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 15-10 — v20</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 15-10 — v21</span></div>
   </aside>
 
   <div class="main">
@@ -3702,7 +3702,7 @@ function renderTransfersTab(){
             actions.push(`<button class="btn btn-sm btn-ghost" data-act="cancel" data-id="${t.id}">إلغاء الإرسال</button>`);
           }
           const np=(t.photos||[]).length;
-          if(canEditTrDate(t) && trStatus(t)!=='draft') actions.push(`<button class="btn btn-sm btn-ghost" data-act="trdate" data-id="${t.id}" title="تعديل تاريخ الإذن">📅 التاريخ</button>`);
+          if(canEditTrDate(t) && trStatus(t)!=='draft') actions.push(`<button class="btn btn-sm btn-ghost" data-act="trdate" data-id="${t.id}" title="تعديل التواريخ">📅 التواريخ</button>`);
           if(np || canAttachTrPhoto(t)) actions.unshift(`<button class="btn btn-sm btn-ghost" data-act="photos" data-id="${t.id}" title="صور إذن الصرف">📷 ${np||'+'}</button>`);
           if(isAdmin && trStatus(t)!=='draft') actions.push(`<button class="btn btn-sm btn-ghost" data-act="adminedit" data-id="${t.id}">تعديل</button>`);
           if(isAdmin && trStatus(t)!=='draft') actions.push(`<button class="icon-btn danger" data-act="delete" data-id="${t.id}" title="حذف">${svgIcon('trash','sm')}</button>`);
@@ -3710,7 +3710,7 @@ function renderTransfersTab(){
           <tr data-id="${t.id}">
             <td><div style="font-weight:800">${fmtDateAr(trDocDate(t))}</div>
               <div class="muted" style="font-size:11px">اتسجل: ${t.sentAt? fmtDateTimeAr(t.sentAt) : (t.draftAt? fmtDateTimeAr(t.draftAt)+' (مسودة)' : fmtDateAr(t.date))}</div>
-              ${(t.dateEdits||[]).map(e=>`<div style="font-size:11px;color:var(--warn)">اتعدل التاريخ من ${fmtDateAr(e.from)} لـ ${fmtDateAr(e.to)} — ${fmtDateTimeAr(e.at)} (${esc(byName(e.by))})</div>`).join('')}
+              ${(t.dateEdits||[]).map(e=>`<div style="font-size:11px;color:var(--warn)">${e.kind==='reg'?`اتعدل تاريخ التسجيل من ${fmtDateTimeAr(e.from)} لـ ${fmtDateTimeAr(e.to)}`:`اتعدل تاريخ الإذن من ${fmtDateAr(e.from)} لـ ${fmtDateAr(e.to)}`} — يوم ${fmtDateTimeAr(e.at)} (${esc(byName(e.by))})</div>`).join('')}
               ${t.editedAt?`<div style="font-size:11px;color:var(--warn)">اتعدل: ${fmtDateTimeAr(t.editedAt)}</div>`:''}</td>
             <td><span class="pill pill-navy">${esc(whLabel(t.fromWarehouse))}</span></td>
             <td><span class="pill pill-navy">${esc(whLabel(t.toWarehouse))}</span></td>
@@ -4987,25 +4987,36 @@ function renderObserverNotesTab(){
 }
 
 /* ================= تاريخ إذن الصرف ================= */
+function toLocalDT(iso){ if(!iso) return ''; const d=new Date(String(iso).length<=10?iso+'T12:00:00':iso); if(isNaN(d)) return ''; const z=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; }
 function trDocDate(t){ return t.docDate || String(t.sentAt||t.date||'').slice(0,10); }
 function canEditTrDate(t){ return !isViewer() && (isAdmin || (currentUser && currentUser.role==='warehouse' && t.fromWarehouse==='raw')); }
 function openTrDateEdit(id){
   const t=DB.transfers.find(x=>x.id===id); if(!t) return;
   document.getElementById('modalRoot').innerHTML=`<div class="modal-overlay" id="overlay"><div class="modal" style="max-width:420px;">
-    <div class="modal-head"><h3>تعديل تاريخ الإذن</h3><button class="modal-close" id="closeX">✕</button></div>
+    <div class="modal-head"><h3>تعديل تواريخ إذن الصرف</h3><button class="modal-close" id="closeX">✕</button></div>
     <div class="modal-body">
-      <div class="muted" style="font-size:12.5px;margin-bottom:10px;">تاريخ التسجيل على السيستم (${t.sentAt?fmtDateTimeAr(t.sentAt):fmtDateAr(t.date)}) مش هيتغير — التعديل هيتكتب في سجل الإذن.</div>
-      <div class="field"><label>تاريخ الإذن</label><input type="date" id="td_date" value="${trDocDate(t)}" max="${todayISO()}"></div>
+      <div class="field"><label>تاريخ الإذن (اللي على الورقة)</label><input type="date" id="td_date" value="${trDocDate(t)}" max="${todayISO()}"></div>
+      <div class="field"><label>تاريخ التسجيل على السيستم</label><input type="datetime-local" id="td_reg" value="${toLocalDT(t.sentAt||t.draftAt||t.date)}"></div>
+      <div class="muted" style="font-size:12px;">أي تعديل بيتكتب تحت الإذن: كان إيه، بقى إيه، مين عدّله وإمتى.</div>
     </div>
     <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button><button class="btn btn-primary" id="saveBtn">حفظ</button></div></div></div>`;
   const ov=document.getElementById('overlay'); ov.addEventListener('click',e=>{ if(e.target===ov) closeModal(); });
   document.getElementById('closeX').onclick=closeModal; document.getElementById('cancelBtn').onclick=closeModal;
   document.getElementById('saveBtn').addEventListener('click', async ()=>{
     const v=document.getElementById('td_date').value; if(!v){ showToast('اختار التاريخ'); return; }
-    const old=trDocDate(t); if(v===old){ closeModal(); return; }
-    (t.dateEdits=t.dateEdits||[]).push({from:old,to:v,by:userTag(),at:new Date().toISOString()});
-    t.docDate=v;
-    logAction(`عدّل تاريخ إذن صرف (${whLabel(t.fromWarehouse)} ← ${whLabel(t.toWarehouse)}) من ${old} لـ ${v}`);
+    const rv=document.getElementById('td_reg').value;
+    const old=trDocDate(t); const oldReg=t.sentAt||t.draftAt||'';
+    const newReg = rv ? new Date(rv).toISOString() : oldReg;
+    const regChanged = rv && toLocalDT(oldReg)!==rv;
+    if(v===old && !regChanged){ closeModal(); return; }
+    const now=new Date().toISOString();
+    if(v!==old){ (t.dateEdits=t.dateEdits||[]).push({from:old,to:v,by:userTag(),at:now}); t.docDate=v; }
+    if(regChanged){
+      (t.dateEdits=t.dateEdits||[]).push({kind:'reg',from:oldReg,to:newReg,by:userTag(),at:now});
+      if(!t.origSentAt) t.origSentAt=oldReg;
+      if(t.sentAt) t.sentAt=newReg; else t.draftAt=newReg;
+    }
+    logAction(`عدّل تواريخ إذن صرف (${whLabel(t.fromWarehouse)} ← ${whLabel(t.toWarehouse)})${v!==old?` — تاريخ الإذن ${old} ← ${v}`:''}${regChanged?` — تاريخ التسجيل ${toLocalDT(oldReg)} ← ${rv}`:''}`);
     await persist(); closeModal(); renderTransfersTab(); showToast('اتعدل تاريخ الإذن');
   });
 }
