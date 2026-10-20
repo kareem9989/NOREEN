@@ -3875,7 +3875,7 @@ function openAdminTransferEdit(id){
     d.className = 'ae-row';
     d.style.cssText = 'display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;';
     d.innerHTML = `
-      <div class="field" style="flex:2;margin:0;min-width:170px;"><label>${n===0?'الصنف':''}</label>${trItemSelectHtml(document.getElementById('ae_from').value,'ae_name',v.fromItemId,v.fromItemName)}</div>
+      <div class="field" style="flex:2;margin:0;min-width:170px;"><label>${n===0?'الصنف':''}</label>${trItemFieldHtml(document.getElementById('ae_from').value,'ae_name',v)}</div>
       <div class="field" style="flex:1;margin:0;min-width:80px;"><label>${n===0?'المرسل':''}</label><input type="number" step="0.01" class="ae_qty" value="${v.fromQty!==undefined?esc(v.fromQty):''}"></div>
       <div class="field" style="flex:1;margin:0;min-width:80px;${adminMode?'':'display:none;'}"><label>${n===0?'المستلم فعلاً':''}</label><input type="number" step="0.01" class="ae_rec" value="${v.toQty!==undefined&&v.toQty!==null?esc(v.toQty):''}" placeholder="زي المرسل"></div>
       <div class="field" style="flex:1;margin:0;min-width:80px;"><label>${n===0?'الوحدة':''}</label><input type="text" class="ae_unit" list="trUnitsList" value="${esc(v.unit||'')}"></div>
@@ -3884,13 +3884,15 @@ function openAdminTransferEdit(id){
     rowsWrap.appendChild(d); n++;
   }
   if(!document.getElementById('trUnitsList')) document.body.insertAdjacentHTML('beforeend', `<datalist id="trUnitsList">${TR_UNITS.map(u=>`<option value="${u}">`).join('')}</datalist>`);
+  trFillDatalist(document.getElementById('ae_from').value);
   lines.forEach(addRow);
   document.getElementById('aeAdd').addEventListener('click', ()=>addRow());
   document.getElementById('ae_from').addEventListener('change', ()=>{
     rowsWrap.querySelectorAll('.ae_name').forEach(old=>{
-      const tmp=document.createElement('div'); tmp.innerHTML=trItemSelectHtml(document.getElementById('ae_from').value,'ae_name',null,null);
+      const tmp=document.createElement('div'); tmp.innerHTML=trItemFieldHtml(document.getElementById('ae_from').value,'ae_name',null);
       old.replaceWith(tmp.firstElementChild);
     });
+    trFillDatalist(document.getElementById('ae_from').value);
   });
 
   document.getElementById('saveBtn').addEventListener('click', async ()=>{
@@ -3905,13 +3907,14 @@ function openAdminTransferEdit(id){
     const rows = [...rowsWrap.querySelectorAll('.ae-row')].map(r=>{
       const fq = Number(r.querySelector('.ae_qty').value);
       const recRaw = r.querySelector('.ae_rec').value.trim();
-      const it = trWhItems(from).find(i=>i.id===r.querySelector('.ae_name').value);
-      return { fromItemId: it?it.id:null, fromItemName: it?it.name:'', fromQty: fq,
+      const {it, name} = trReadField(from, r.querySelector('.ae_name'));
+      return { fromItemId: it?it.id:null, fromItemName: it?it.name:name, fromQty: fq,
                toQty: recRaw==='' ? fq : Number(recRaw), unit: r.querySelector('.ae_unit').value.trim() };
-    }).filter(r=>r.fromItemId || r.fromQty);
-    if(!rows.length){ showToast('اختار صنف واكتب كميته'); return; }
+    }).filter(r=>r.fromItemName || r.fromQty);
+    if(!rows.length){ showToast('اكتب صنف وكمية'); return; }
     for(const r of rows){
-      if(!r.fromItemId){ showToast('فيه صف من غير صنف — اختار الصنف من القائمة'); return; }
+      if(from==='raw' && !r.fromItemId){ showToast('فيه صف من غير صنف — اختار الصنف من القائمة'); return; }
+      if(!r.fromItemName){ showToast('فيه صف من غير اسم صنف'); return; }
       if(!(r.fromQty>0)){ showToast(`كمية غير صحيحة لـ "${r.fromItemName}"`); return; }
       if(Number.isNaN(r.toQty) || r.toQty<0){ showToast(`الكمية المستلمة غير صحيحة لـ "${r.fromItemName}"`); return; }
     }
@@ -3919,7 +3922,7 @@ function openAdminTransferEdit(id){
       // التأكد إن الكميات الجديدة مش أكبر من الرصيد (الرصيد الحالي + اللي كان متخصم في التحويل القديم)
       const fromArr = whArray(from);
       const oldById = {}; trLines(t).forEach(l=>{ const it0 = l.fromItemId===null ? null : trFindItem(from, l.fromItemId, l.fromItemName); if(it0) oldById[it0.id]=(oldById[it0.id]||0)+Number(l.fromQty||0); });
-      const newById = {}; rows.forEach(r=>{ newById[r.fromItemId]=(newById[r.fromItemId]||0)+r.fromQty; });
+      const newById = {}; rows.forEach(r=>{ if(r.fromItemId) newById[r.fromItemId]=(newById[r.fromItemId]||0)+r.fromQty; });
       for(const iid in newById){
         const it = fromArr.find(i=>i.id===iid);
         if(it){ const avail = Number(it.balance) + (oldById[iid]||0);
@@ -4060,12 +4063,30 @@ function trItemSelectHtml(whId, cls, selId, selName){
   return `<select class="${cls}">${missing}<option value="" ${!sel&&!selName?'selected':''}>— اختار الصنف —</option>${body}</select>`;
 }
 
+// الاختيار من قائمة إجباري في مخزن الخامات بس — باقي المخازن كتابة عادية زي الأول
+function trItemFieldHtml(whId, cls, v){
+  v = v || {};
+  if(whId==='raw') return trItemSelectHtml(whId, cls, v.fromItemId, v.fromItemName);
+  return `<input type="text" class="${cls}" list="trItemsList" placeholder="اسم الصنف / المنتج" value="${esc(v.fromItemName||'')}">`;
+}
+function trReadField(whId, el){
+  if(whId==='raw'){ const it = trWhItems(whId).find(i=>i.id===el.value); return {it, name: it?it.name:''}; }
+  const name = el.value.trim();
+  const it = name ? (whArray(whId)||[]).find(i=>i.name.trim()===name) : null;
+  return {it, name};
+}
+function trFillDatalist(whId){
+  let dl = document.getElementById('trItemsList');
+  if(!dl){ document.body.insertAdjacentHTML('beforeend','<datalist id="trItemsList"></datalist>'); dl = document.getElementById('trItemsList'); }
+  dl.innerHTML = whId==='raw' ? '' : (whArray(whId)||[]).map(it=>`<option value="${esc(it.name)}">رصيد: ${fmtNum(it.balance)}</option>`).join('');
+}
+
 function finalizeTransfer(t){
   const fromArr = whArray(t.fromWarehouse);
   const totals = {};
   for(const ln of t.lines){
     const it = trFindItem(t.fromWarehouse, ln.fromItemId, ln.fromItemName);
-    if(!it) return `الصنف "${ln.fromItemName}" مش موجود في ${whLabel(t.fromWarehouse)} — اختاره من القائمة`;
+    if(!it){ if(t.fromWarehouse==='raw') return `الصنف "${ln.fromItemName}" مش موجود في ${whLabel(t.fromWarehouse)} — اختاره من القائمة`; continue; }
     totals[it.id] = (totals[it.id]||0) + Number(ln.fromQty||0);
   }
   for(const iid in totals){
@@ -4147,7 +4168,7 @@ function openTransferModal(prefill, editId){
     div.className = 'cr-product-row tr-row';
     div.style.cssText = 'display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;';
     div.innerHTML = `
-      <div class="field" style="flex:2.2;margin:0;min-width:180px;"><label>${rowN===0?'الصنف (من أصناف المخزن)':''}</label>${trItemSelectHtml(fromWhSel.value,'tr_name',v.fromItemId,v.fromItemName)}</div>
+      <div class="field" style="flex:2.2;margin:0;min-width:180px;"><label>${rowN===0?'الصنف':''}</label>${trItemFieldHtml(fromWhSel.value,'tr_name',v)}</div>
       <div class="field" style="flex:1;margin:0;"><label>${rowN===0?'الكمية':''}</label><input type="number" step="0.01" class="tr_qty" placeholder="0" value="${v.fromQty!==undefined?esc(v.fromQty):''}"></div>
       <div class="field" style="flex:1.1;margin:0;"><label>${rowN===0?'الوحدة':''}</label>
         <input type="text" class="tr_unit" list="trUnitsList" placeholder="كرتونة" value="${esc(v.unit||'')}"></div>
@@ -4156,24 +4177,24 @@ function openTransferModal(prefill, editId){
     rowsWrap.appendChild(div);
     rowN++;
     div.querySelector('.cr-remove-row').onclick = ()=>{ if(rowsWrap.children.length>1) div.remove(); else showToast('لازم صنف واحد على الأقل'); };
-    div.querySelector('.tr_name').addEventListener('change', ()=>updateBal(div));
+    ['input','change'].forEach(ev=>div.querySelector('.tr_name').addEventListener(ev, ()=>updateBal(div)));
     updateBal(div);
   }
   function updateBal(row){
-    const id = row.querySelector('.tr_name').value;
-    const it = id ? trWhItems(fromWhSel.value).find(i=>i.id===id) : null;
+    const {it, name} = trReadField(fromWhSel.value, row.querySelector('.tr_name'));
     const unitEl = row.querySelector('.tr_unit');
     if(it && it.unit && !unitEl.value) unitEl.value = it.unit;
-    row.querySelector('.tr_bal').textContent = it ? `الرصيد الحالي: ${fmtNum(it.balance)}${it.unit?' '+it.unit:''}` : '';
+    row.querySelector('.tr_bal').textContent = it ? `الرصيد الحالي: ${fmtNum(it.balance)}${it.unit?' '+it.unit:''}` : (name ? 'صنف غير مسجل في المخزن ده — هيتبعت من غير خصم رصيد' : '');
   }
   function refill(){
     rowsWrap.querySelectorAll('.tr-row').forEach(r=>{
       const old = r.querySelector('.tr_name');
       const tmp = document.createElement('div');
-      tmp.innerHTML = trItemSelectHtml(fromWhSel.value,'tr_name',null,null);
+      tmp.innerHTML = trItemFieldHtml(fromWhSel.value,'tr_name',null);
       const ns = tmp.firstElementChild; old.replaceWith(ns);
-      ns.addEventListener('change', ()=>updateBal(r));
+      ['input','change'].forEach(ev=>ns.addEventListener(ev, ()=>updateBal(r)));
     });
+    trFillDatalist(fromWhSel.value);
     const dests = myDestinations(fromWhSel.value).filter(id=>id!==fromWhSel.value);
     toWhSel.innerHTML = '<option value="">— اختر —</option>' + WH_DEFS.filter(w=>dests.includes(w.id))
       .map(w=>`<option value="${w.id}" ${prefill.toWh===w.id?'selected':''}>${esc(w.label)}</option>`).join('');
@@ -4186,7 +4207,7 @@ function openTransferModal(prefill, editId){
   if(draft) draft.lines.forEach(ln=>addRow(ln)); else addRow();
   if(prefill.fromItemId){
     const it = whArray(fromWhSel.value).find(i=>i.id===prefill.fromItemId);
-    if(it){ rowsWrap.querySelector('.tr_name').value = it.id; updateBal(rowsWrap.querySelector('.tr-row')); }
+    if(it){ rowsWrap.querySelector('.tr_name').value = fromWhSel.value==='raw' ? it.id : it.name; updateBal(rowsWrap.querySelector('.tr-row')); }
   }
   document.getElementById('trAddRow').addEventListener('click', ()=>addRow());
 
@@ -4198,19 +4219,19 @@ function openTransferModal(prefill, editId){
     if(!toWh){ showToast('اختر المخزن اللي هتبعتله'); return null; }
     if(!isAllWhUser() && fromWh!==mine){ showToast('تقدر تحوّل من مخزنك بس'); return null; }
     if(!myDestinations(fromWh).includes(toWh)){ showToast('مش مسموحلك تحوّل للمخزن ده'); return null; }
-    const items = trWhItems(fromWh);
     const rows = [...rowsWrap.querySelectorAll('.tr-row')].map(r=>{
-      const it = items.find(i=>i.id===r.querySelector('.tr_name').value);
+      const {it, name} = trReadField(fromWh, r.querySelector('.tr_name'));
       return {
         fromItemId: it?it.id:null,
-        fromItemName: it?it.name:'',
+        fromItemName: it?it.name:name,
         fromQty: Number(r.querySelector('.tr_qty').value),
         unit: r.querySelector('.tr_unit').value.trim(),
       };
-    }).filter(r=>r.fromItemId || r.fromQty);
-    if(!rows.length){ showToast('اختار صنف واكتب كميته'); return null; }
+    }).filter(r=>r.fromItemName || r.fromQty);
+    if(!rows.length){ showToast('اكتب صنف وكمية'); return null; }
     for(const r of rows){
-      if(!r.fromItemId){ showToast('فيه صف من غير صنف — اختار الصنف من القائمة'); return null; }
+      if(fromWh==='raw' && !r.fromItemId){ showToast('فيه صف من غير صنف — اختار الصنف من القائمة'); return null; }
+      if(!r.fromItemName){ showToast('فيه صف من غير اسم صنف'); return null; }
       if(!r.fromQty || r.fromQty<=0){ showToast(`اكتب كمية صحيحة لـ "${r.fromItemName}"`); return null; }
     }
     return {fromWh, toWh, notes, rows};
