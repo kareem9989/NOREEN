@@ -281,6 +281,19 @@ body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer
   @page{margin:14mm;}
 }
 
+/* بحث الصنف في إذن الصرف (مخزن الخامات) */
+.trc{position:relative;}
+.trc-list{position:absolute;top:100%;right:0;left:0;z-index:300;margin-top:4px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 26px rgba(32,30,86,.16);max-height:260px;overflow-y:auto;}
+.trc-opt{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;}
+.trc-opt:last-child{border-bottom:none;}
+.trc-opt:hover,.trc-opt.hl{background:var(--tint);}
+.trc-opt .n{font-weight:700;color:var(--ink);}
+.trc-opt .m{font-size:11px;color:var(--ink-soft);}
+.trc-opt .b{font-weight:800;color:var(--navy);white-space:nowrap;}
+.trc-opt .b.low{color:var(--danger);}
+.trc-empty{padding:12px;font-size:12.5px;color:var(--ink-soft);text-align:center;}
+input.trc-picked{border-color:var(--ok) !important;}
+
 /* quick adjust */
 .qty-adjust{display:flex;align-items:center;gap:5px;}
 .qty-adjust input{width:64px;border:1px solid var(--border);border-radius:7px;padding:5px 7px;font-size:12.5px;text-align:center;}
@@ -3890,7 +3903,7 @@ function openAdminTransferEdit(id){
   document.getElementById('ae_from').addEventListener('change', ()=>{
     rowsWrap.querySelectorAll('.ae_name').forEach(old=>{
       const tmp=document.createElement('div'); tmp.innerHTML=trItemFieldHtml(document.getElementById('ae_from').value,'ae_name',null);
-      old.replaceWith(tmp.firstElementChild);
+      (old.closest('.trc')||old).replaceWith(tmp.firstElementChild);
     });
     trFillDatalist(document.getElementById('ae_from').value);
   });
@@ -4066,11 +4079,14 @@ function trItemSelectHtml(whId, cls, selId, selName){
 // الاختيار من قائمة إجباري في مخزن الخامات بس — باقي المخازن كتابة عادية زي الأول
 function trItemFieldHtml(whId, cls, v){
   v = v || {};
-  if(whId==='raw') return trItemSelectHtml(whId, cls, v.fromItemId, v.fromItemName);
+  if(whId==='raw'){
+    const it = trFindItem(whId, v.fromItemId, v.fromItemId?null:v.fromItemName);
+    return `<div class="trc"><input type="text" class="${cls}${it?' trc-picked':''}" data-trc="raw" data-id="${it?esc(it.id):''}" value="${esc(it?it.name:(v.fromItemName||''))}" autocomplete="off" placeholder="اكتب اسم الصنف (مثلاً: عسل)"><div class="trc-list hidden"></div></div>`;
+  }
   return `<input type="text" class="${cls}" list="trItemsList" placeholder="اسم الصنف / المنتج" value="${esc(v.fromItemName||'')}">`;
 }
 function trReadField(whId, el){
-  if(whId==='raw'){ const it = trWhItems(whId).find(i=>i.id===el.value); return {it, name: it?it.name:''}; }
+  if(whId==='raw'){ const id = el.dataset.id; const it = id ? trWhItems(whId).find(i=>i.id===id) : null; return {it, name: it?it.name:el.value.trim()}; }
   const name = el.value.trim();
   const it = name ? (whArray(whId)||[]).find(i=>i.name.trim()===name) : null;
   return {it, name};
@@ -4079,6 +4095,49 @@ function trFillDatalist(whId){
   let dl = document.getElementById('trItemsList');
   if(!dl){ document.body.insertAdjacentHTML('beforeend','<datalist id="trItemsList"></datalist>'); dl = document.getElementById('trItemsList'); }
   dl.innerHTML = whId==='raw' ? '' : (whArray(whId)||[]).map(it=>`<option value="${esc(it.name)}">رصيد: ${fmtNum(it.balance)}</option>`).join('');
+}
+
+function trNorm(x){ return String(x||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/\s+/g,' ').trim(); }
+function trcRender(inp){
+  const box = inp.parentElement.querySelector('.trc-list');
+  const q = trNorm(inp.value);
+  const words = q.split(' ').filter(Boolean);
+  const items = trWhItems('raw').filter(it=>{
+    const hay = trNorm(`${it.name} ${it.variant||''} ${it.supplier||''} ${it.category||''}`);
+    return words.every(w=>hay.includes(w));
+  }).sort((a,b)=>a.name.localeCompare(b.name,'ar')).slice(0,40);
+  box.innerHTML = items.length ? items.map((it,i)=>`<div class="trc-opt${i===0&&q?' hl':''}" data-id="${esc(it.id)}">
+      <div><div class="n">${esc(it.name)}</div><div class="m">${esc([it.category,it.variant,it.supplier].filter(Boolean).join(' · '))}</div></div>
+      <div class="b ${Number(it.balance)<=0?'low':''}">${fmtNum(it.balance)}${it.unit?' '+esc(it.unit):''}</div></div>`).join('')
+    : `<div class="trc-empty">مفيش صنف بالاسم ده في مخزن الخامات</div>`;
+  box.classList.remove('hidden');
+}
+function trcPick(inp, id){
+  const it = trWhItems('raw').find(i=>i.id===id); if(!it) return;
+  inp.value = it.name; inp.dataset.id = it.id; inp.classList.add('trc-picked');
+  inp.parentElement.querySelector('.trc-list').classList.add('hidden');
+  inp.dispatchEvent(new Event('change',{bubbles:true}));
+}
+if(!window._trcWired){
+  window._trcWired = true;
+  document.addEventListener('input', e=>{
+    const inp = e.target; if(!inp.matches || !inp.matches('input[data-trc]')) return;
+    inp.dataset.id = ''; inp.classList.remove('trc-picked'); trcRender(inp);
+  });
+  document.addEventListener('focusin', e=>{ const inp=e.target; if(inp.matches && inp.matches('input[data-trc]')) trcRender(inp); });
+  document.addEventListener('focusout', e=>{ const inp=e.target; if(inp.matches && inp.matches('input[data-trc]')) setTimeout(()=>{ const l=inp.parentElement&&inp.parentElement.querySelector('.trc-list'); if(l) l.classList.add('hidden'); },150); });
+  document.addEventListener('mousedown', e=>{
+    const o = e.target.closest && e.target.closest('.trc-opt'); if(!o) return;
+    e.preventDefault(); trcPick(o.closest('.trc').querySelector('input[data-trc]'), o.dataset.id);
+  });
+  document.addEventListener('keydown', e=>{
+    const inp=e.target; if(!inp.matches || !inp.matches('input[data-trc]')) return;
+    const opts=[...inp.parentElement.querySelectorAll('.trc-opt')]; if(!opts.length) return;
+    let i=opts.findIndex(o=>o.classList.contains('hl'));
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); opts.forEach(o=>o.classList.remove('hl')); i = e.key==='ArrowDown'? Math.min(opts.length-1,i+1) : Math.max(0,i-1); opts[i].classList.add('hl'); opts[i].scrollIntoView({block:'nearest'}); }
+    else if(e.key==='Enter'){ e.preventDefault(); trcPick(inp, (opts[i>=0?i:0]).dataset.id); }
+    else if(e.key==='Escape'){ inp.parentElement.querySelector('.trc-list').classList.add('hidden'); }
+  });
 }
 
 function finalizeTransfer(t){
@@ -4184,15 +4243,16 @@ function openTransferModal(prefill, editId){
     const {it, name} = trReadField(fromWhSel.value, row.querySelector('.tr_name'));
     const unitEl = row.querySelector('.tr_unit');
     if(it && it.unit && !unitEl.value) unitEl.value = it.unit;
-    row.querySelector('.tr_bal').textContent = it ? `الرصيد الحالي: ${fmtNum(it.balance)}${it.unit?' '+it.unit:''}` : (name ? 'صنف غير مسجل في المخزن ده — هيتبعت من غير خصم رصيد' : '');
+    row.querySelector('.tr_bal').textContent = it ? `الرصيد الحالي: ${fmtNum(it.balance)}${it.unit?' '+it.unit:''}` : (name ? (fromWhSel.value==='raw' ? 'اختار الصنف من القائمة اللي بتظهر تحت الخانة' : 'صنف غير مسجل في المخزن ده — هيتبعت من غير خصم رصيد') : '');
   }
   function refill(){
     rowsWrap.querySelectorAll('.tr-row').forEach(r=>{
       const old = r.querySelector('.tr_name');
       const tmp = document.createElement('div');
       tmp.innerHTML = trItemFieldHtml(fromWhSel.value,'tr_name',null);
-      const ns = tmp.firstElementChild; old.replaceWith(ns);
-      ['input','change'].forEach(ev=>ns.addEventListener(ev, ()=>updateBal(r)));
+      const ns = tmp.firstElementChild; (old.closest('.trc')||old).replaceWith(ns);
+      const ni = ns.matches('.tr_name') ? ns : ns.querySelector('.tr_name');
+      ['input','change'].forEach(ev=>ni.addEventListener(ev, ()=>updateBal(r)));
     });
     trFillDatalist(fromWhSel.value);
     const dests = myDestinations(fromWhSel.value).filter(id=>id!==fromWhSel.value);
@@ -4207,7 +4267,7 @@ function openTransferModal(prefill, editId){
   if(draft) draft.lines.forEach(ln=>addRow(ln)); else addRow();
   if(prefill.fromItemId){
     const it = whArray(fromWhSel.value).find(i=>i.id===prefill.fromItemId);
-    if(it){ rowsWrap.querySelector('.tr_name').value = fromWhSel.value==='raw' ? it.id : it.name; updateBal(rowsWrap.querySelector('.tr-row')); }
+    if(it){ const ni = rowsWrap.querySelector('.tr_name'); ni.value = it.name; if(fromWhSel.value==='raw'){ ni.dataset.id = it.id; ni.classList.add('trc-picked'); } updateBal(rowsWrap.querySelector('.tr-row')); }
   }
   document.getElementById('trAddRow').addEventListener('click', ()=>addRow());
 
