@@ -281,6 +281,13 @@ body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer
   @page{margin:14mm;}
 }
 
+/* الوحدة جنب الرصيد */
+.unit-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 16px;padding:10px 14px;border-radius:12px;background:rgba(220,53,69,.08);color:var(--ink);font-size:13px;}
+.unit-chip{display:inline-block;margin-inline-start:6px;padding:2px 9px;border-radius:999px;background:var(--tint);color:var(--navy);font-weight:700;font-size:12px;font-family:inherit;}
+.unit-chip.warn{background:rgba(220,53,69,.12);color:var(--danger);}
+.tr-unit-show{display:flex;align-items:center;min-height:40px;padding:0 12px;border-radius:10px;background:var(--tint);color:var(--navy);font-weight:800;font-size:13px;}
+.tr-unit-show.empty{color:var(--ink-soft);font-weight:500;}
+
 /* بحث الصنف في إذن الصرف (مخزن الخامات) */
 .trc{position:relative;}
 .trc-list{position:absolute;top:100%;right:0;left:0;z-index:300;margin-top:4px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 26px rgba(32,30,86,.16);max-height:260px;overflow-y:auto;}
@@ -1593,6 +1600,7 @@ const CONFIGS = {
       {key:'category', label:'الفئة الفرعية', type:'datalist', listId:'categoryOptions', required:false},
       {key:'supplier', label:'المورد', type:'text', required:false},
       {key:'balance', label:'الرصيد الحالي', type:'number', required:true, step:'0.01'},
+      {key:'unit', label:'الوحدة (الرصيد ده إيه؟)', type:'unit', required:true},
       {key:'variant', label:'تفاصيل إضافية (طعم / مقاس...)', type:'text', required:false},
       {key:'barcode', label:'الباركود', type:'text', required:false},
       {key:'notes', label:'ملاحظات', type:'text', required:false},
@@ -1603,14 +1611,14 @@ const CONFIGS = {
       {key:'name', label:'الصنف'},
       {key:'category', label:'الفئة'},
       {key:'supplier', label:'المورد'},
-      {key:'balance', label:'الرصيد الحالي'},
+      {key:'balance', label:'الرصيد الحالي (والوحدة)'},
       {key:'adjust', label:'صرف / إضافة'},
     ],
     columnsWithExpiry:[
       {key:'name', label:'الصنف'},
       {key:'variant', label:'تفاصيل'},
       {key:'supplier', label:'المورد'},
-      {key:'balance', label:'الرصيد الحالي'},
+      {key:'balance', label:'الرصيد الحالي (والوحدة)'},
       {key:'productionDate', label:'تاريخ الإنتاج'},
       {key:'expiryDate', label:'تاريخ الانتهاء'},
       {key:'expiryStatus', label:'الحالة'},
@@ -1629,7 +1637,7 @@ const CONFIGS = {
     columns:[
       {key:'name', label:'الصنف'},
       {key:'flavor', label:'الطعم'},
-      {key:'balance', label:'الرصيد الحالي'},
+      {key:'balance', label:'الرصيد الحالي (والوحدة)'},
       {key:'adjust', label:'صرف / إضافة'},
     ],
     searchKeys:['name','flavor'],
@@ -1647,7 +1655,7 @@ const CONFIGS = {
     columns:[
       {key:'name', label:'الكرتونة'},
       {key:'size', label:'المقاس'},
-      {key:'balance', label:'الرصيد الحالي'},
+      {key:'balance', label:'الرصيد الحالي (والوحدة)'},
       {key:'notes', label:'الملاحظات'},
       {key:'barcode', label:'الباركود'},
       {key:'adjust', label:'صرف / إضافة'},
@@ -1726,10 +1734,11 @@ const CONFIGS = {
     fields:[
       {key:'name', label:'اسم الصنف', type:'text', required:true},
       {key:'balance', label:'الرصيد الحالي', type:'number', required:true, step:'0.01'},
+      {key:'unit', label:'الوحدة (الرصيد ده إيه؟)', type:'unit', required:true},
     ],
     columns:[
       {key:'name', label:'الصنف'},
-      {key:'balance', label:'الرصيد الحالي'},
+      {key:'balance', label:'الرصيد الحالي (والوحدة)'},
       {key:'adjust', label:'صرف / إضافة يدوي'},
     ],
     searchKeys:['name'],
@@ -1740,10 +1749,11 @@ const CONFIGS = {
     fields:[
       {key:'name', label:'اسم الصنف', type:'text', required:true},
       {key:'balance', label:'الرصيد الحالي', type:'number', required:true, step:'0.01'},
+      {key:'unit', label:'الوحدة (الرصيد ده إيه؟)', type:'unit', required:true},
     ],
     columns:[
       {key:'name', label:'الصنف'},
-      {key:'balance', label:'الرصيد الحالي'},
+      {key:'balance', label:'الرصيد الحالي (والوحدة)'},
       {key:'adjust', label:'صرف / إضافة يدوي'},
     ],
     searchKeys:['name'],
@@ -1754,10 +1764,11 @@ const CONFIGS = {
     fields:[
       {key:'name', label:'اسم الصنف', type:'text', required:true},
       {key:'balance', label:'الرصيد الحالي', type:'number', required:true, step:'0.01'},
+      {key:'unit', label:'الوحدة (الرصيد ده إيه؟)', type:'unit', required:true},
     ],
     columns:[
       {key:'name', label:'الصنف'},
-      {key:'balance', label:'الرصيد الحالي'},
+      {key:'balance', label:'الرصيد الحالي (والوحدة)'},
       {key:'adjust', label:'صرف / إضافة يدوي'},
     ],
     searchKeys:['name'],
@@ -2183,14 +2194,23 @@ function getFilteredList(tabId){
   return list;
 }
 
+let unitFixOnly = false;
 function renderTableRows(tabId){
   const cfg = CONFIGS[tabId];
-  const list = getFilteredList(tabId);
+  let list = getFilteredList(tabId);
   const holder = document.getElementById('tableHolder');
+  let unitBanner = '';
+  if(WH_ITEM_TABS.includes(tabId)){
+    const unclear = (DB[tabId]||[]).filter(i=>!unitIsClear(i.unit)).length;
+    if(!unclear) unitFixOnly = false;
+    if(unitFixOnly) list = list.filter(i=>!unitIsClear(i.unit));
+    if(unclear) unitBanner = `<div class="unit-banner"><div>⚠ فيه <b>${unclear}</b> صنف وحدتهم مش واضحة (مكتوب "عدد" أو فاضية) — يعني الرصيد مش معروف كيس ولا علبة ولا كرتونة. دوس ✏️ على الصنف واختار وحدته.</div><button class="btn btn-sm ${unitFixOnly?'btn-primary':'btn-ghost'}" id="unitFixBtn">${unitFixOnly?'اعرض كل الأصناف':'اعرضهم بس'}</button></div>`;
+    setTimeout(()=>{ const b=document.getElementById('unitFixBtn'); if(b) b.onclick=()=>{ unitFixOnly=!unitFixOnly; renderTableRows(tabId); }; },0);
+  }
   const columns = (tabId==='raw' && rawSubTab!=='all' && cfg.columnsWithExpiry) ? cfg.columnsWithExpiry : cfg.columns;
 
   if(!list.length){
-    holder.innerHTML = `<div class="empty-state"><div class="big">∅</div>لا توجد نتائج مطابقة</div>`;
+    holder.innerHTML = unitBanner + `<div class="empty-state"><div class="big">∅</div>لا توجد نتائج مطابقة</div>`;
     return;
   }
 
@@ -2214,7 +2234,8 @@ function renderTableRows(tabId){
       if(col.key==='balance' || col.key==='qty' || col.key==='drums' || col.key==='produced' || col.key==='opening' || col.key==='added' || col.key==='removed' || col.key==='closing' || col.key==='receivedKg' || col.key==='remainingKg' || col.key==='waste' || col.key==='cartonsDelivered' || col.key==='cartonsRemaining' || col.key==='qtyToFilling' || col.key==='remainingToProduce'){
         const val = item[col.key];
         const isLow = col.key==='balance' && Number(val)<=itemMin(item);
-        return `<td class="num" ${isLow ? 'style="color:var(--danger)"':''}>${fmtNum(val)}${col.key==='balance' && item.unit ? ` <span class="muted" style="font-weight:500;font-size:11.5px">${esc(item.unit)}</span>`:''}</td>`;
+        const unitHtml = (col.key==='balance' && WH_ITEM_TABS.includes(tabId)) ? (unitIsClear(item.unit) ? ` <span class="unit-chip">${esc(item.unit)}</span>` : ` <span class="unit-chip warn" title="عدّل الصنف واختار وحدته">⚠ ${item.unit?esc(item.unit)+' — ':''}حدد الوحدة</span>`) : (col.key==='balance' && item.unit ? ` <span class="muted" style="font-weight:500;font-size:11.5px">${esc(item.unit)}</span>`:'');
+        return `<td class="num" ${isLow ? 'style="color:var(--danger)"':''}>${fmtNum(val)}${unitHtml}</td>`;
       }
       if(col.key==='date' || col.key==='productionDate' || col.key==='expiryDate' || col.key==='orderDate' || col.key==='receiveDate'){
         const dv = item[col.key];
@@ -2250,7 +2271,7 @@ function renderTableRows(tabId){
     </tr>`;
   }).join('');
 
-  holder.innerHTML = `<div class="table-wrap"><table>
+  holder.innerHTML = unitBanner + `<div class="table-wrap"><table>
     <thead><tr>${columns.map(c=>`<th>${c.label}</th>`).join('')}<th></th></tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table></div>`;
@@ -2600,6 +2621,8 @@ function openItemModal(tabId, item, presetVals){
       const existing = [...new Set(DB.raw.map(r=>(r.category||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
       inputHtml = `<input type="text" id="${id}" value="${esc(v)}" list="${f.listId}" placeholder="اكتب فئة موجودة أو فئة جديدة">
         <datalist id="${f.listId}">${existing.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`;
+    } else if(f.type==='unit'){
+      inputHtml = unitSelectHtml(id, v);
     } else if(f.type==='number'){
       inputHtml = `<input type="number" step="${f.step||'1'}" id="${id}" value="${esc(v)}">`;
     } else if(f.type==='date'){
@@ -2657,6 +2680,10 @@ function openItemModal(tabId, item, presetVals){
       newData[f.key] = v;
     });
     if(missingRequired){ showToast('من فضلك املأ الحقول المطلوبة (*)'); return; }
+    if(WH_ITEM_TABS.includes(tabId) && newData.name!==undefined && newData.unit!==undefined){
+      const dup = (DB[tabId]||[]).find(x=>x!==item && sameItem(x, newData.name, newData.unit) && (tabId!=='raw' || String(x.supplier||'').trim()===String(newData.supplier||'').trim()) && String(x.variant||'').trim()===String(newData.variant||'').trim());
+      if(dup){ showToast(`"${newData.name}" بوحدة ${newData.unit} موجود بالفعل في المخزن ده — زوّد رصيده بدل ما تضيفه تاني`); return; }
+    }
 
     if(isEdit){
       const oldBal = Number(item.balance);
@@ -3067,9 +3094,9 @@ function cascadeReturnToPrev(tabId, item, qty, note, needsReceipt){
   item.history.push({date, type:'صرف', qty, notes: note || `إرجاع تلقائي لـ ${TITLES[prevTabId][0]}`, refId: transferId, by: userTag()});
 
   const prevArr = DB[prevTabId];
-  let prevItem = prevArr.find(i=>i.name.trim()===item.name.trim());
+  let prevItem = whFind(prevArr, item.name, item.unit);
   if(!prevItem){
-    prevItem = {id:uid(), name:item.name, balance:0, history:[]};
+    prevItem = {id:uid(), name:item.name, balance:0, history:[], unit:item.unit||''};
     if(prevTabId==='raw'){ prevItem.category = item.category || ''; prevItem.supplier = ''; prevItem.variant=''; prevItem.barcode=''; prevItem.notes=''; prevItem.productionDate=''; prevItem.expiryDate=''; }
     prevArr.unshift(prevItem);
   }
@@ -3791,11 +3818,11 @@ function undoTransferEffects(t){
   const fromArr = whArray(t.fromWarehouse), toArr = whArray(t.toWarehouse);
   trLines(t).forEach(ln=>{
     if(st==='pending' || st==='received'){
-      const fromItem = ln.fromItemId===null ? null : (fromArr.find(i=>i.id===ln.fromItemId) || fromArr.find(i=>i.name.trim()===String(ln.fromItemName||'').trim()));
+      const fromItem = ln.fromItemId===null ? null : (fromArr.find(i=>i.id===ln.fromItemId) || whFind(fromArr, ln.fromItemName, ln.unit));
       if(fromItem) fromItem.balance = Math.round((fromItem.balance + Number(ln.fromQty||0))*100)/100;
     }
     if(st==='received'){
-      const toItem = toArr.find(i=>i.id===ln.toItemId) || toArr.find(i=>i.name.trim()===String(ln.toItemName||ln.fromItemName||'').trim());
+      const toItem = toArr.find(i=>i.id===ln.toItemId) || whFind(toArr, ln.toItemName||ln.fromItemName, ln.unit);
       if(toItem) toItem.balance = Math.round((toItem.balance - Number(ln.toQty||0))*100)/100;
     }
   });
@@ -3809,7 +3836,7 @@ function applyTransferEffects(t){
   const tag = isAdmin ? ' (تعديل أدمن)' : ' (معدّل قبل الاستلام)';
   t.lines = t.lines.map(ln=>{
     const out = {...ln};
-    const fromItem = trFindItem(t.fromWarehouse, ln.fromItemId, ln.fromItemName);
+    const fromItem = trFindItem(t.fromWarehouse, ln.fromItemId, ln.fromItemName, ln.unit);
     out.fromItemId = fromItem ? fromItem.id : null;
     if(fromItem){
       fromItem.balance = Math.round((fromItem.balance - Number(ln.fromQty))*100)/100;
@@ -3817,7 +3844,7 @@ function applyTransferEffects(t){
       fromItem.history.push({date, ts:new Date().toISOString(), type:'صرف', qty:Number(ln.fromQty), notes:`تحويل إلى ${whLabel(t.toWarehouse)}${ln.unit?' — '+ln.unit:''}${tag}`, refId:t.id, by:userTag()});
     }
     if(st==='received'){
-      let toItem = toArr.find(i=>i.name.trim()===ln.fromItemName.trim());
+      let toItem = whFind(toArr, ln.fromItemName, ln.unit);
       if(!toItem){
         toItem = {id:uid(), name:ln.fromItemName, balance:0, history:[], unit:ln.unit||''};
         if(t.toWarehouse==='raw') Object.assign(toItem,{category:'',supplier:'',variant:'',barcode:'',notes:'',productionDate:'',expiryDate:''});
@@ -3891,7 +3918,7 @@ function openAdminTransferEdit(id){
       <div class="field" style="flex:2;margin:0;min-width:170px;"><label>${n===0?'الصنف':''}</label>${trItemFieldHtml(document.getElementById('ae_from').value,'ae_name',v)}</div>
       <div class="field" style="flex:1;margin:0;min-width:80px;"><label>${n===0?'المرسل':''}</label><input type="number" step="0.01" class="ae_qty" value="${v.fromQty!==undefined?esc(v.fromQty):''}"></div>
       <div class="field" style="flex:1;margin:0;min-width:80px;${adminMode?'':'display:none;'}"><label>${n===0?'المستلم فعلاً':''}</label><input type="number" step="0.01" class="ae_rec" value="${v.toQty!==undefined&&v.toQty!==null?esc(v.toQty):''}" placeholder="زي المرسل"></div>
-      <div class="field" style="flex:1;margin:0;min-width:80px;"><label>${n===0?'الوحدة':''}</label><input type="text" class="ae_unit" list="trUnitsList" value="${esc(v.unit||'')}"></div>
+      <div class="field" style="flex:1;margin:0;min-width:80px;"><label>${n===0?'الوحدة':''}</label>${unitSelectHtml(null, v.unit, 'ae_unit')}</div>
       <button type="button" class="icon-btn danger" title="حذف">${svgIcon('trash','sm')}</button>`;
     d.querySelector('button').onclick = ()=>{ if(rowsWrap.children.length>1) d.remove(); else showToast('لازم صنف واحد على الأقل'); };
     rowsWrap.appendChild(d); n++;
@@ -3920,14 +3947,15 @@ function openAdminTransferEdit(id){
     const rows = [...rowsWrap.querySelectorAll('.ae-row')].map(r=>{
       const fq = Number(r.querySelector('.ae_qty').value);
       const recRaw = r.querySelector('.ae_rec').value.trim();
-      const {it, name} = trReadField(from, r.querySelector('.ae_name'));
+      const {it, name, unit} = trRowRead(from, r, '.ae_name', '.ae_unit');
       return { fromItemId: it?it.id:null, fromItemName: it?it.name:name, fromQty: fq,
-               toQty: recRaw==='' ? fq : Number(recRaw), unit: r.querySelector('.ae_unit').value.trim() };
+               toQty: recRaw==='' ? fq : Number(recRaw), unit: (it && unitIsClear(it.unit)) ? it.unit : unit };
     }).filter(r=>r.fromItemName || r.fromQty);
     if(!rows.length){ showToast('اكتب صنف وكمية'); return; }
     for(const r of rows){
       if(from==='raw' && !r.fromItemId){ showToast('فيه صف من غير صنف — اختار الصنف من القائمة'); return; }
       if(!r.fromItemName){ showToast('فيه صف من غير اسم صنف'); return; }
+      if(!r.unit){ showToast(`اختار الوحدة لـ "${r.fromItemName}"`); return; }
       if(!(r.fromQty>0)){ showToast(`كمية غير صحيحة لـ "${r.fromItemName}"`); return; }
       if(Number.isNaN(r.toQty) || r.toQty<0){ showToast(`الكمية المستلمة غير صحيحة لـ "${r.fromItemName}"`); return; }
     }
@@ -3998,7 +4026,7 @@ function openReceiveModal(id){
     const date = todayISO();
     const newLines = trLines(t2).map((ln,i)=>{
       const q = qtys[i];
-      let toItem = toArr.find(it=>it.name.trim()===ln.fromItemName.trim());
+      let toItem = whFind(toArr, ln.fromItemName, ln.unit);
       if(!toItem){ toItem = {id:uid(), name:ln.fromItemName, balance:0, history:[], unit:ln.unit||''}; if(t2.toWarehouse==='raw'){ Object.assign(toItem,{category:'',supplier:'',variant:'',barcode:'',notes:'',productionDate:'',expiryDate:''}); } toArr.unshift(toItem); }
       toItem.balance = Math.round((toItem.balance + q)*100)/100;
       toItem.history = toItem.history || [];
@@ -4025,7 +4053,7 @@ async function returnTransferToSender(id, status){
   const fromArr = whArray(t.fromWarehouse);
   trLines(t).forEach(ln=>{
     if(ln.fromItemId===null) return; // صنف ماكانش متسجل في مخزن المرسل — مفيش رصيد اتخصم عشان يرجع
-    const it = fromArr.find(i=>i.id===ln.fromItemId) || fromArr.find(i=>i.name.trim()===ln.fromItemName);
+    const it = fromArr.find(i=>i.id===ln.fromItemId) || whFind(fromArr, ln.fromItemName, ln.unit);
     if(it){
       it.balance = Math.round((it.balance + Number(ln.fromQty||0))*100)/100;
       it.history = it.history || [];
@@ -4052,9 +4080,9 @@ function trUnitLabel(ln){ return ln.unit ? ` ${esc(ln.unit)}` : ''; }
 // تحويل المسودة لتحويل فعلي: خصم الكميات من مخزن المرسل وتحويلها لـ "في الطريق"
 /* اختيار الصنف في إذن الصرف من قائمة أصناف المخزن (مش كتابة بإيد) */
 function trWhItems(whId){ let a = whArray(whId)||[]; if(whId==='raw') a = a.filter(rawCatAllowed); return a; }
-function trFindItem(whId, id, name){
+function trFindItem(whId, id, name, unit){
   const a = whArray(whId)||[];
-  return (id && a.find(i=>i.id===id)) || (!id && name ? a.find(i=>i.name.trim()===String(name).trim()) : null) || null;
+  return (id && a.find(i=>i.id===id)) || (!id && name ? whFind(a, name, unit) : null) || null;
 }
 function trItemLabel(it){
   return `${it.name}${it.variant?' — '+it.variant:''}${it.supplier?' ('+it.supplier+')':''} — رصيد: ${fmtNum(it.balance)}${it.unit?' '+it.unit:''}`;
@@ -4091,10 +4119,63 @@ function trReadField(whId, el){
   const it = name ? (whArray(whId)||[]).find(i=>i.name.trim()===name) : null;
   return {it, name};
 }
+/* يقرا صف الإذن: الصنف + الوحدة، ويرجع الصنف المطابق في المخزن */
+function trRowRead(whId, row, nameSel, unitSel){
+  const nameEl = row.querySelector(nameSel), uSel = row.querySelector(unitSel);
+  const arr = whArray(whId)||[];
+  let it=null, name='', matches=[];
+  if(whId==='raw'){
+    const id = nameEl.dataset.id; it = id ? trWhItems(whId).find(i=>i.id===id) : null;
+    name = it ? it.name : nameEl.value.trim();
+    if(it) matches=[it];
+  } else {
+    name = nameEl.value.trim();
+    matches = name ? arr.filter(i=>i.name.trim()===name) : [];
+    if(matches.length===1 && !uSel.value && matches[0].unit) setUnitSel(uSel, matches[0].unit);
+    it = uSel.value ? whFind(arr, name, uSel.value) : (matches.length===1 ? matches[0] : null);
+  }
+  if(whId==='raw'){
+    if(it && unitIsClear(it.unit)){ setUnitSel(uSel, it.unit); uSel.disabled = true; }
+    else { uSel.disabled = false; }
+  }
+  return {it, name, unit: uSel.value.trim(), matches};
+}
+function setUnitSel(sel, u){
+  u = String(u||'').trim(); if(!u) return;
+  if(![...sel.options].some(o=>o.value===u)) sel.insertAdjacentHTML('beforeend', `<option value="${esc(u)}">${esc(u)}</option>`);
+  sel.value = u;
+}
+function trRowHint(whId, r){
+  if(r.it) return `الرصيد الحالي: ${fmtNum(r.it.balance)} ${r.it.unit||''}${(whId==='raw' && !unitIsClear(r.it.unit))?' — ⚠ الصنف ده وحدته مش متحددة: اختار الوحدة وهتتسجل عليه':''}`;
+  if(!r.name) return '';
+  if(whId==='raw') return 'اختار الصنف من القائمة اللي بتظهر تحت الخانة';
+  if(r.matches.length>1 && !r.unit) return `الصنف ده موجود بأكتر من وحدة: ${r.matches.map(m=>`${m.unit||'بدون وحدة'} (${fmtNum(m.balance)})`).join('، ')} — اختار الوحدة`;
+  if(r.matches.length) return `الصنف ده مش مسجل بوحدة "${r.unit}" — الموجود: ${r.matches.map(m=>`${m.unit||'بدون وحدة'} (${fmtNum(m.balance)})`).join('، ')}. لو بعته كده هيتبعت من غير خصم رصيد`;
+  return 'صنف غير مسجل في المخزن ده — هيتبعت من غير خصم رصيد';
+}
+
 function trFillDatalist(whId){
   let dl = document.getElementById('trItemsList');
   if(!dl){ document.body.insertAdjacentHTML('beforeend','<datalist id="trItemsList"></datalist>'); dl = document.getElementById('trItemsList'); }
-  dl.innerHTML = whId==='raw' ? '' : (whArray(whId)||[]).map(it=>`<option value="${esc(it.name)}">رصيد: ${fmtNum(it.balance)}</option>`).join('');
+  dl.innerHTML = whId==='raw' ? '' : (whArray(whId)||[]).map(it=>`<option value="${esc(it.name)}">${fmtNum(it.balance)} ${esc(it.unit||'')}</option>`).join('');
+}
+
+/* ===== الوحدات: الصنف الواحد ممكن يبقى له أكتر من تعبئة، وكل تعبئة رصيد لوحدها (من غير تحويل) ===== */
+const UNITS = ['كجم','طن','جرام','كرتونة','كيس','شكارة','برطمان','علبة','قطعة','رول','لتر','جركن','بستلة','دستة'];
+const WH_ITEM_TABS = ['raw','whManufacturing','whPackaging','whFinished'];
+function unitIsClear(u){ u=String(u||'').trim(); return !!u && u!=='عدد'; }
+function sameUnit(a,b){ return String(a||'').trim()===String(b||'').trim(); }
+function sameItem(it, name, unit){ return it.name.trim()===String(name||'').trim() && sameUnit(it.unit, unit); }
+function unitSelectHtml(id, v, cls){
+  v = String(v||'').trim();
+  const list = (v && !UNITS.includes(v)) ? [v, ...UNITS] : UNITS;
+  return `<select ${id?`id="${id}"`:''} ${cls?`class="${cls}"`:''}><option value="">— اختار الوحدة —</option>${list.map(u=>`<option value="${esc(u)}" ${u===v?'selected':''}>${esc(u)}${u==='عدد'?' (مش واضح — غيّرها)':''}</option>`).join('')}</select>`;
+}
+/* البحث عن صنف في مخزن بالاسم + الوحدة (لو الوحدة مش معروفة: أول صنف بالاسم) */
+function whFind(arr, name, unit){
+  name = String(name||'').trim(); if(!name) return null;
+  if(unit!==undefined && unit!==null && String(unit).trim()!=='') return arr.find(i=>sameItem(i,name,unit)) || arr.find(i=>i.name.trim()===name && !String(i.unit||'').trim()) || null;
+  return arr.find(i=>i.name.trim()===name) || null;
 }
 
 function trNorm(x){ return String(x||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/\s+/g,' ').trim(); }
@@ -4144,7 +4225,7 @@ function finalizeTransfer(t){
   const fromArr = whArray(t.fromWarehouse);
   const totals = {};
   for(const ln of t.lines){
-    const it = trFindItem(t.fromWarehouse, ln.fromItemId, ln.fromItemName);
+    const it = trFindItem(t.fromWarehouse, ln.fromItemId, ln.fromItemName, ln.unit);
     if(!it){ if(t.fromWarehouse==='raw') return `الصنف "${ln.fromItemName}" مش موجود في ${whLabel(t.fromWarehouse)} — اختاره من القائمة`; continue; }
     totals[it.id] = (totals[it.id]||0) + Number(ln.fromQty||0);
   }
@@ -4154,7 +4235,9 @@ function finalizeTransfer(t){
   }
   const date = todayISO();
   t.lines = t.lines.map(ln=>{
-    const it = trFindItem(t.fromWarehouse, ln.fromItemId, ln.fromItemName);
+    const it = trFindItem(t.fromWarehouse, ln.fromItemId, ln.fromItemName, ln.unit);
+    if(it && !unitIsClear(it.unit) && unitIsClear(ln.unit)) it.unit = ln.unit;
+    if(it && unitIsClear(it.unit)) ln = {...ln, unit: it.unit};
     if(it){
       it.balance = Math.round((it.balance - Number(ln.fromQty))*100)/100;
       it.history = it.history || [];
@@ -4229,21 +4312,19 @@ function openTransferModal(prefill, editId){
     div.innerHTML = `
       <div class="field" style="flex:2.2;margin:0;min-width:180px;"><label>${rowN===0?'الصنف':''}</label>${trItemFieldHtml(fromWhSel.value,'tr_name',v)}</div>
       <div class="field" style="flex:1;margin:0;"><label>${rowN===0?'الكمية':''}</label><input type="number" step="0.01" class="tr_qty" placeholder="0" value="${v.fromQty!==undefined?esc(v.fromQty):''}"></div>
-      <div class="field" style="flex:1.1;margin:0;"><label>${rowN===0?'الوحدة':''}</label>
-        <input type="text" class="tr_unit" list="trUnitsList" placeholder="كرتونة" value="${esc(v.unit||'')}"></div>
+      <div class="field" style="flex:1.1;margin:0;min-width:110px;"><label>${rowN===0?'الوحدة':''}</label>${unitSelectHtml(null, v.unit, 'tr_unit')}</div>
       <button type="button" class="icon-btn danger cr-remove-row" title="حذف">${svgIcon('trash','sm')}</button>
       <div class="muted tr_bal" style="font-size:11px;flex-basis:100%;margin-top:-4px;"></div>`;
     rowsWrap.appendChild(div);
     rowN++;
     div.querySelector('.cr-remove-row').onclick = ()=>{ if(rowsWrap.children.length>1) div.remove(); else showToast('لازم صنف واحد على الأقل'); };
     ['input','change'].forEach(ev=>div.querySelector('.tr_name').addEventListener(ev, ()=>updateBal(div)));
+    div.querySelector('.tr_unit').addEventListener('change', ()=>updateBal(div));
     updateBal(div);
   }
   function updateBal(row){
-    const {it, name} = trReadField(fromWhSel.value, row.querySelector('.tr_name'));
-    const unitEl = row.querySelector('.tr_unit');
-    if(it && it.unit && !unitEl.value) unitEl.value = it.unit;
-    row.querySelector('.tr_bal').textContent = it ? `الرصيد الحالي: ${fmtNum(it.balance)}${it.unit?' '+it.unit:''}` : (name ? (fromWhSel.value==='raw' ? 'اختار الصنف من القائمة اللي بتظهر تحت الخانة' : 'صنف غير مسجل في المخزن ده — هيتبعت من غير خصم رصيد') : '');
+    const r = trRowRead(fromWhSel.value, row, '.tr_name', '.tr_unit');
+    row.querySelector('.tr_bal').textContent = trRowHint(fromWhSel.value, r);
   }
   function refill(){
     rowsWrap.querySelectorAll('.tr-row').forEach(r=>{
@@ -4253,6 +4334,7 @@ function openTransferModal(prefill, editId){
       const ns = tmp.firstElementChild; (old.closest('.trc')||old).replaceWith(ns);
       const ni = ns.matches('.tr_name') ? ns : ns.querySelector('.tr_name');
       ['input','change'].forEach(ev=>ni.addEventListener(ev, ()=>updateBal(r)));
+      const us = r.querySelector('.tr_unit'); us.disabled=false; us.value='';
     });
     trFillDatalist(fromWhSel.value);
     const dests = myDestinations(fromWhSel.value).filter(id=>id!==fromWhSel.value);
@@ -4280,18 +4362,19 @@ function openTransferModal(prefill, editId){
     if(!isAllWhUser() && fromWh!==mine){ showToast('تقدر تحوّل من مخزنك بس'); return null; }
     if(!myDestinations(fromWh).includes(toWh)){ showToast('مش مسموحلك تحوّل للمخزن ده'); return null; }
     const rows = [...rowsWrap.querySelectorAll('.tr-row')].map(r=>{
-      const {it, name} = trReadField(fromWh, r.querySelector('.tr_name'));
+      const {it, name, unit} = trRowRead(fromWh, r, '.tr_name', '.tr_unit');
       return {
         fromItemId: it?it.id:null,
         fromItemName: it?it.name:name,
         fromQty: Number(r.querySelector('.tr_qty').value),
-        unit: r.querySelector('.tr_unit').value.trim(),
+        unit: (it && unitIsClear(it.unit)) ? it.unit : unit,
       };
     }).filter(r=>r.fromItemName || r.fromQty);
     if(!rows.length){ showToast('اكتب صنف وكمية'); return null; }
     for(const r of rows){
       if(fromWh==='raw' && !r.fromItemId){ showToast('فيه صف من غير صنف — اختار الصنف من القائمة'); return null; }
       if(!r.fromItemName){ showToast('فيه صف من غير اسم صنف'); return null; }
+      if(!r.unit){ showToast(`اختار الوحدة لـ "${r.fromItemName}" (كيس / علبة / كرتونة / كجم...)`); return null; }
       if(!r.fromQty || r.fromQty<=0){ showToast(`اكتب كمية صحيحة لـ "${r.fromItemName}"`); return null; }
     }
     return {fromWh, toWh, notes, rows};
