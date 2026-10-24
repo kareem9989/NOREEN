@@ -2287,7 +2287,28 @@ function renderTableRows(tabId){
     return;
   }
 
+  // مخزن الإنتاج التام: ترتيب الأصناف حسب الأوردر + سطر عنوان قبل كل أوردر بإجمالي كمياته
+  let finGroupOf = null;
+  if(tabId==='whFinished'){
+    const rank = c=>{ const i=FINISHED_COUNTRIES.indexOf(c); return i<0 ? (c?900:999) : i; };
+    const cOf = i=>(i.country||'').trim();
+    list = list.map((it,idx)=>({it,idx})).sort((a,b)=> rank(cOf(a.it))-rank(cOf(b.it)) || cOf(a.it).localeCompare(cOf(b.it),'ar') || a.idx-b.idx).map(x=>x.it);
+    const totals = {};
+    list.forEach(i=>{ const c=cOf(i); totals[c]=totals[c]||{n:0,sum:0}; totals[c].n++; totals[c].sum+=Number(i.balance)||0; });
+    let last = null;
+    finGroupOf = item=>{
+      const c = cOf(item);
+      if(c===last) return '';
+      last = c;
+      const tt = totals[c];
+      return `<tr class="fin-group-row"><td colspan="${columns.length+1}" style="background:var(--navy,#1F4E78);color:#fff;font-weight:800;font-size:14px;padding:10px 14px;">
+        📦 أوردر: ${c?esc(c):'بدون أوردر'} <span style="font-weight:600;font-size:12px;opacity:.9;margin-inline-start:10px;">${tt.n} صنف · إجمالي ${fmtNum(Math.round(tt.sum*100)/100)}</span>
+      </td></tr>`;
+    };
+  }
+
   let rowsHtml = list.map(item=>{
+    const groupHead = finGroupOf ? finGroupOf(item) : '';
     let cells = columns.map(col=>{
       if(col.key==='adjust'){
         if(isReadOnlyTab(tabId)) return `<td class="muted">—</td>`;
@@ -2329,7 +2350,7 @@ function renderTableRows(tabId){
       return `<td>${esc(item[col.key]) || '<span class="muted">—</span>'}</td>`;
     }).join('');
     const hasHistory = (tabId==='raw' || tabId==='rolls' || tabId==='cartons' || tabId==='whManufacturing' || tabId==='whPackaging' || tabId==='whFinished' || tabId==='suppliers');
-    return `<tr data-id="${item.id}">
+    return `${groupHead}<tr data-id="${item.id}">
       ${cells}
       <td>
         <div class="row-actions">
