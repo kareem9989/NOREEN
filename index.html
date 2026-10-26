@@ -629,7 +629,7 @@ input.trc-picked{border-color:var(--ok) !important;}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 20-10 — v22</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 26-10 — v23</span></div>
   </aside>
 
   <div class="main">
@@ -3789,8 +3789,89 @@ const TR_STATUS = {
   rejected:{label:'مرفوض — رجع للمرسل', cls:'pill-danger'},
 };
 
+/* تابات إذن الصرف: الكل / صرف كل مخزن لوحده + فلتر بالفترة وملخص اللي اتصرف */
+let trTab = 'all', trFrom = '', trTo = '';
+const TR_TABS = [
+  {id:'all', label:'كل الأذون'},
+  {id:'raw', label:'صرف الخامات'},
+  {id:'manufacturing', label:'صرف التصنيع'},
+  {id:'packaging', label:'صرف التعبئة والتغليف'},
+];
+function trMonthRange(offset){
+  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth()+offset);
+  const y = d.getFullYear(), m = d.getMonth();
+  const pad = n=>String(n).padStart(2,'0');
+  const last = new Date(y, m+1, 0).getDate();
+  return [`${y}-${pad(m+1)}-01`, `${y}-${pad(m+1)}-${pad(last)}`];
+}
+function trSummaryHtml(arr){
+  const done = arr.filter(t=>['pending','received'].includes(trStatus(t)));
+  if(!done.length) return '';
+  const g = {};
+  done.forEach(t=>trLines(t).forEach(ln=>{
+    const unit = unitShow(ln.unit) || (ln.unit||'');
+    const k = `${String(ln.fromItemName||'').trim()}|${unit}|${t.toWarehouse}`;
+    const r = g[k] = g[k] || {name:ln.fromItemName, unit, to:t.toWarehouse, sent:0, rec:0, recSent:0, pend:0, n:0};
+    r.sent += Number(ln.fromQty)||0; r.n++;
+    if(trStatus(t)==='received'){ r.rec += Number(ln.toQty)||0; r.recSent += Number(ln.fromQty)||0; }
+    else r.pend += Number(ln.fromQty)||0;
+  }));
+  const rows = Object.values(g).sort((a,b)=>whLabel(a.to).localeCompare(whLabel(b.to),'ar') || b.sent-a.sent);
+  const r2 = n=>fmtNum(Math.round(n*100)/100);
+  return `<div class="panel" style="margin-bottom:14px;">
+    <div class="panel-head"><h2>ملخص اللي اتصرف في الفترة دي <span class="muted" style="font-weight:600;font-size:12.5px">(${done.length} إذن · ${rows.length} صنف)</span></h2>
+      <div class="toolbar"><button class="btn btn-ghost btn-sm" id="trSumExport">${svgIcon('download','sm')} تصدير Excel</button></div></div>
+    <div class="panel-body"><div class="table-wrap"><table>
+      <thead><tr><th>الصنف</th><th>راح لـ</th><th>إجمالي المصروف</th><th>اتستلم فعلاً</th><th>عدد المرات</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><td style="font-weight:700">${esc(r.name)}</td><td><span class="pill pill-navy">${esc(whLabel(r.to))}</span></td>
+        <td class="num">${r2(r.sent)}${r.unit?` <span class="unit-chip">${esc(r.unit)}</span>`:''}</td>
+        <td class="num">${r2(r.rec)}${Math.abs(r.rec-r.recSent)>0.001?` <span style="color:var(--danger);font-size:11px;">(${r.rec<r.recSent?'عجز':'زيادة'} ${r2(Math.abs(r.rec-r.recSent))})</span>`:''}${r.pend?` <span style="color:var(--warn);font-size:11px;">+ ${r2(r.pend)} لسه في الطريق</span>`:''}</td>
+        <td class="num">${r.n}</td></tr>`).join('')}</tbody>
+    </table></div></div></div>`;
+}
+
+function exportTrSummary(arr){
+  if(!window.XLSX){ showToast('مكتبة Excel مش متاحة'); return; }
+  const done = arr.filter(t=>['pending','received'].includes(trStatus(t)));
+  const g = {};
+  const detail = [];
+  done.forEach(t=>trLines(t).forEach(ln=>{
+    const unit = unitShow(ln.unit) || (ln.unit||'');
+    const k = `${String(ln.fromItemName||'').trim()}|${unit}|${t.toWarehouse}`;
+    const r = g[k] = g[k] || {'الصنف':ln.fromItemName,'الوحدة':unit,'راح لـ':whLabel(t.toWarehouse),'إجمالي المصروف':0,'اتستلم فعلاً':0,'عدد المرات':0};
+    r['إجمالي المصروف'] = Math.round((r['إجمالي المصروف'] + (Number(ln.fromQty)||0))*100)/100;
+    if(trStatus(t)==='received') r['اتستلم فعلاً'] = Math.round((r['اتستلم فعلاً'] + (Number(ln.toQty)||0))*100)/100;
+    r['عدد المرات']++;
+    detail.push({'التاريخ':trDocDate(t),'من':whLabel(t.fromWarehouse),'إلى':whLabel(t.toWarehouse),'الصنف':ln.fromItemName,'الكمية':Number(ln.fromQty)||0,'الوحدة':unit,'المستلم فعلاً':trStatus(t)==='received'?Number(ln.toQty)||0:'','الحالة':TR_STATUS[trStatus(t)].label,'أرسله':t.sentBy||'','ملاحظات':t.notes||''});
+  }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.values(g)), 'الملخص');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detail), 'كل الأذون');
+  const tabLbl = (TR_TABS.find(x=>x.id===trTab)||{}).label || 'أذون الصرف';
+  XLSX.writeFile(wb, `${tabLbl}${trFrom?' من '+trFrom:''}${trTo?' لحد '+trTo:''}.xlsx`);
+}
+
 function renderTransfersTab(){
-  const list = [...visibleTransfers()].sort((a,b)=>{
+  const allVisible = visibleTransfers();
+  const inRange = t=>{ const d=trDocDate(t); return (!trFrom || d>=trFrom) && (!trTo || d<=trTo); };
+  const tabCount = id=> allVisible.filter(t=>(id==='all'||t.fromWarehouse===id) && inRange(t)).length;
+  const filtered = allVisible.filter(t=>(trTab==='all' || t.fromWarehouse===trTab) && inRange(t));
+  const [m0a,m0b] = trMonthRange(0), [m1a,m1b] = trMonthRange(-1);
+  const tabsHtml = `<div class="panel" style="padding:14px 18px;margin-bottom:14px;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      ${TR_TABS.map(x=>`<button class="btn btn-sm ${trTab===x.id?'btn-primary':'btn-ghost'}" data-trtab="${x.id}">${x.label} <span style="opacity:.75">(${tabCount(x.id)})</span></button>`).join('')}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px;">
+      <span class="muted">الفترة:</span>
+      <button class="btn btn-sm ${trFrom===m0a&&trTo===m0b?'btn-primary':'btn-ghost'}" data-trrange="0">الشهر ده</button>
+      <button class="btn btn-sm ${trFrom===m1a&&trTo===m1b?'btn-primary':'btn-ghost'}" data-trrange="-1">الشهر اللي فات</button>
+      <button class="btn btn-sm ${!trFrom&&!trTo?'btn-primary':'btn-ghost'}" data-trrange="all">كل الفترات</button>
+      <span class="muted">أو من</span><input type="date" id="trFromD" value="${trFrom}" style="width:auto;">
+      <span class="muted">لحد</span><input type="date" id="trToD" value="${trTo}" style="width:auto;">
+    </div>
+  </div>`;
+  const summary = trTab==='all' ? '' : trSummaryHtml(filtered);
+  const list = [...filtered].sort((a,b)=>{
     const rank = t=> trStatus(t)==='draft'?0:(trStatus(t)==='pending'?1:2);
     const pa = rank(a), pb = rank(b);
     if(pa!==pb) return pa-pb;
@@ -3799,11 +3880,13 @@ function renderTransfersTab(){
   const incoming = pendingIncomingCount();
   const canSend = isAllWhUser() || (myDestinations(myWarehouse()).length>0);
   let html = `
+  ${tabsHtml}
   ${incoming? `<div class="panel" style="padding:14px 18px;border-color:var(--warn);background:var(--warn-bg);margin-bottom:14px;display:flex;align-items:center;gap:10px;">
     ${svgIcon('alert')}<div><strong>فيه ${incoming} تحويل مستني تأكيد استلامك.</strong> راجع الكمية اللي وصلت فعلاً واضغط "تأكيد الاستلام".</div></div>` : ''}
+  ${summary}
   <div class="panel">
     <div class="panel-head">
-      <h2>أذون الصرف <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
+      <h2>${trTab==='all'?'أذون الصرف':esc(TR_TABS.find(x=>x.id===trTab).label)} <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
       <div class="toolbar">${canSend? `<button class="btn btn-gold" id="addTransferBtn">+ إذن صرف جديد</button>`:''}</div>
     </div>
     <div class="panel-body">
@@ -3855,12 +3938,21 @@ function renderTransfersTab(){
           </tr>`;
         }).join('')}
         </tbody>
-      </table></div>` : `<div class="empty-state">${svgIcon('history')}<div>لا يوجد تحويلات مسجلة بعد</div></div>`}
+      </table></div>` : `<div class="empty-state">${svgIcon('history')}<div>${allVisible.length?'مفيش أذون في التاب/الفترة دي':'لا يوجد تحويلات مسجلة بعد'}</div></div>`}
     </div>
   </div>`;
   document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
   const addBtn = document.getElementById('addTransferBtn');
   if(addBtn) addBtn.addEventListener('click', ()=>openTransferModal());
+  document.querySelectorAll('[data-trtab]').forEach(b=>b.addEventListener('click', ()=>{ trTab=b.dataset.trtab; renderTransfersTab(); }));
+  document.querySelectorAll('[data-trrange]').forEach(b=>b.addEventListener('click', ()=>{
+    const v=b.dataset.trrange; if(v==='all'){ trFrom=''; trTo=''; } else { [trFrom,trTo]=trMonthRange(Number(v)); } renderTransfersTab();
+  }));
+  const fD=document.getElementById('trFromD'), tD=document.getElementById('trToD');
+  if(fD) fD.addEventListener('change', ()=>{ trFrom=fD.value; renderTransfersTab(); });
+  if(tD) tD.addEventListener('change', ()=>{ trTo=tD.value; renderTransfersTab(); });
+  const sx=document.getElementById('trSumExport');
+  if(sx) sx.addEventListener('click', ()=>exportTrSummary(filtered));
   document.querySelectorAll('[data-act="editdraft"]').forEach(b=>b.addEventListener('click', ()=>openTransferModal(null, b.dataset.id)));
   document.querySelectorAll('[data-act="photos"]').forEach(b=>b.addEventListener('click', ()=>openTrPhotos(b.dataset.id)));
   document.querySelectorAll('[data-act="trdate"]').forEach(b=>b.addEventListener('click', ()=>openTrDateEdit(b.dataset.id)));
