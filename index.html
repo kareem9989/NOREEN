@@ -629,7 +629,7 @@ input.trc-picked{border-color:var(--ok) !important;}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 26-10 — v23</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 27-10 — v24</span></div>
   </aside>
 
   <div class="main">
@@ -702,9 +702,9 @@ const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
 const WAREHOUSE_TABS = ['raw','whManufacturing','purchaseRequests','purchases','transfers','shortageReports','whReport','lowStock']; // أمين مخزن الخامات
 const ROLE_TABS = { // كل مخزن ليه أمين لوحده
-  whman:  ['whManufacturing','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','waste'],
-  whpack: ['whPackaging','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','waste'],
-  whfin:  ['whFinished','transfers','shortageReports','whReport','lowStock','waste'],
+  whman:  ['whManufacturing','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','wasteMan'],
+  whpack: ['whPackaging','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','wastePack'],
+  whfin:  ['whFinished','transfers','shortageReports','whReport','lowStock'],
 };
 // تابات بيشوفها الدور من غير ما يعدّل فيها (لا إضافة ولا صرف ولا تعديل ولا حذف)
 const ROLE_READONLY = { whman:['raw'], whpack:['raw'] };
@@ -718,7 +718,7 @@ function isReadOnlyTab(tabId){ if(isViewer()) return true; return !!(currentUser
 function allowedRawCats(){ return currentUser ? (ROLE_RAW_CATS[currentUser.role]||null) : null; }
 function rawCatAllowed(item){ const c = allowedRawCats(); return !c || c.includes((item.category||'').trim()); }
 const CAIRO_TABS = ['cairoRequests','fillingReports','productionReports'];
-const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','transfers','shortageReports','whReport','lowStock','waste','cairoRequests','fillingReports','productionReports'];
+const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','transfers','shortageReports','whReport','lowStock','wasteMan','wastePack','cairoRequests','fillingReports','productionReports'];
 function isTabAllowed(tabId){
   if(!currentUser) return false;
   if(currentUser.role==='admin') return true;
@@ -1330,7 +1330,8 @@ const TABS = [
   {id:'production', label:'الإنتاج اليومي', ic:'production'},
   {id:'productionReports', label:'تقرير الانتاج', ic:'production'},
   {id:'fillingReports', label:'تقرير التعبئة', ic:'box'},
-  {id:'waste', label:'تقرير الهالك', ic:'waste'},
+  {id:'wasteMan', label:'هالك التصنيع', ic:'waste'},
+  {id:'wastePack', label:'هالك التعبئة والتغليف', ic:'waste'},
   {id:'breakdowns', label:'الأعطال', ic:'breakdowns'},
   {id:'observerNotes', label:'ملاحظات المراقبة', ic:'edit'},
   {id:'auditLog', label:'سجل النشاط', ic:'history'},
@@ -1356,6 +1357,8 @@ const TITLES = {
   productionReports:['تقرير الانتاج','تسجيل تقرير الانتاج لكل أوردر: الصنف ووزن الوحدة والكمية المسلمة للتعبئة'],
   fillingReports:['تقرير التعبئة','تسجيل تقرير التعبئة لكل أوردر: الكميات المستلمة من الإنتاج، الهالك، والكراتين المسلمة للمخازن'],
   waste:['تقرير الهالك','تسجيل الهالك اليومي وأسبابه'],
+  wasteMan:['هالك التصنيع','الصنف، خد منه كام، والهالك كان قد إيه — لمخزن التصنيع'],
+  wastePack:['هالك التعبئة والتغليف','الصنف، خد منه كام، والهالك كان قد إيه — لمخزن التعبئة والتغليف'],
   breakdowns:['الأعطال','تسجيل أعطال وتوقفات خط الإنتاج'],
   auditLog:['سجل النشاط','كل تعديل حصل في النظام ومين اللي عمله'],
 };
@@ -1368,6 +1371,7 @@ function renderNav(){
     if(t.id==='raw') count = DB.raw.filter(rawCatAllowed).length;
     else if(t.id==='production') count = DB.production.length;
     else if(t.id==='waste') count = DB.waste.length;
+    else if(t.id==='wasteMan' || t.id==='wastePack') count = wasteRecsOf(WASTE_TAB_WH[t.id]).length;
     else if(t.id==='breakdowns') count = DB.breakdowns.length;
     else if(t.id==='shortageReports') count = (isAdmin ? (DB.shortageReports||[]).filter(r=>r.status==='pending').length : visibleShortages().filter(r=>r.status==='pending').length) || '';
     else if(t.id==='purchaseRequests') count = (DB.purchaseRequests||[]).filter(r=>r.status==='pending').length || '';
@@ -5508,6 +5512,194 @@ function openTrPhotos(id){
 }
 
 /* ================= ROUTER ================= */
+/* ================= تابات الهالك: التصنيع + التعبئة والتغليف =================
+   كل سجل: التاريخ، الصنف، خد منه كام، الهالك كام (+ النسبة بتتحسب لوحدها).
+   للمتابعة بس — مفيش خصم من أرصدة المخازن. البيانات في DB.waste (نفس التقارير القديمة). */
+const WASTE_TAB_WH = { wasteMan:'manufacturing', wastePack:'packaging' };
+let wsFrom = '', wsTo = '', wsSearch = '';
+// السجلات القديمة اللي اتسجلت من غير مخزن (هالك خط الإنتاج) بتظهر في هالك التصنيع
+function wasteRecsOf(whId){ const lbl = whLabel(whId); return (DB.waste||[]).filter(w=>{ const wl=(w.warehouse||'').trim(); return wl===lbl || (!wl && whId==='manufacturing'); }); }
+function canEditWaste(whId){ return !isViewer() && (isAllWhUser() || myWarehouse()===whId); }
+function wastePct(w){ const t=Number(w.taken), q=Number(w.qty); return (t>0 && !Number.isNaN(q)) ? Math.round(q/t*1000)/10 : null; }
+function wasteFiltered(whId){
+  const q = trNorm(wsSearch);
+  return wasteRecsOf(whId).filter(w=>{
+    const d = w.date||'';
+    if(wsFrom && d<wsFrom) return false;
+    if(wsTo && d>wsTo) return false;
+    if(q && !trNorm(`${w.item||''} ${w.wasteType||''} ${w.reason||''}`).includes(q)) return false;
+    return true;
+  }).sort((a,b)=>(b.date||'').localeCompare(a.date||'') || String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+}
+function unitTotals(list, key){
+  const m = {};
+  list.forEach(w=>{ const u=unitShow(w.unit)||''; m[u]=(m[u]||0)+(Number(w[key])||0); });
+  return Object.entries(m).filter(([,v])=>v).map(([u,v])=>`${fmtNum(Math.round(v*100)/100)}${u?' '+u:''}`).join(' · ') || '0';
+}
+function renderWasteTab(whId){
+  const tabId = currentTab;
+  const list = wasteFiltered(whId);
+  const can = canEditWaste(whId);
+  const [m0a,m0b] = trMonthRange(0), [m1a,m1b] = trMonthRange(-1);
+  const withTaken = list.filter(w=>Number(w.taken)>0);
+  const html = `
+  <div class="cards-grid" style="margin-bottom:14px;">
+    <div class="stat-card"><div class="icon-wrap">${svgIcon('history')}</div><div class="label">عدد السجلات</div><div class="value">${list.length}</div></div>
+    <div class="stat-card"><div class="icon-wrap">${svgIcon('box')}</div><div class="label">إجمالي اللي اتاخد</div><div class="value" style="font-size:18px">${unitTotals(withTaken,'taken')}</div></div>
+    <div class="stat-card"><div class="icon-wrap danger">${svgIcon('waste')}</div><div class="label">إجمالي الهالك</div><div class="value" style="font-size:18px">${unitTotals(list,'qty')}</div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>${esc(TITLES[tabId][0])} <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
+      <div class="toolbar">
+        <input type="text" id="wsSearch" placeholder="بحث بالصنف..." value="${esc(wsSearch)}" style="width:180px;">
+        <button class="btn btn-ghost" id="wsExport">${svgIcon('download','sm')} Excel</button>
+        <button class="btn btn-ghost" id="wsPrint">${svgIcon('print','sm')} طباعة</button>
+        ${can?`<button class="btn btn-gold" id="wsAdd">+ تسجيل هالك</button>`:''}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px;padding:0 18px 12px;">
+      <span class="muted">الفترة:</span>
+      <button class="btn btn-sm ${wsFrom===m0a&&wsTo===m0b?'btn-primary':'btn-ghost'}" data-wsrange="0">الشهر ده</button>
+      <button class="btn btn-sm ${wsFrom===m1a&&wsTo===m1b?'btn-primary':'btn-ghost'}" data-wsrange="-1">الشهر اللي فات</button>
+      <button class="btn btn-sm ${!wsFrom&&!wsTo?'btn-primary':'btn-ghost'}" data-wsrange="all">كل الفترات</button>
+      <span class="muted">أو من</span><input type="date" id="wsFromD" value="${wsFrom}" style="width:auto;">
+      <span class="muted">لحد</span><input type="date" id="wsToD" value="${wsTo}" style="width:auto;">
+    </div>
+    <div class="panel-body">
+      ${list.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>التاريخ</th><th>الصنف</th><th>خد منه</th><th>الهالك</th><th>نسبة الهالك</th><th>سجّله</th><th></th></tr></thead>
+        <tbody>${list.map(w=>{
+          const u = unitShow(w.unit); const pct = wastePct(w);
+          const old = [w.wasteType, w.reason].filter(Boolean).join(' — ');
+          return `<tr>
+            <td style="font-weight:700">${fmtDateAr(w.date)}</td>
+            <td style="font-weight:700">${esc(w.item||'')}${old?`<div class="muted" style="font-size:11.5px;font-weight:500">${esc(old)}</div>`:''}</td>
+            <td class="num">${w.taken!==undefined&&w.taken!==null&&w.taken!==''?fmtNum(w.taken)+(u?` <span class="unit-chip">${esc(u)}</span>`:''):'<span class="muted">—</span>'}</td>
+            <td class="num" style="color:var(--danger)">${fmtNum(w.qty)}${u?` <span class="unit-chip">${esc(u)}</span>`:''}</td>
+            <td class="num">${pct===null?'<span class="muted">—</span>':`<span class="pill ${pct>10?'pill-danger':(pct>5?'pill-warn':'pill-ok')}">${pct}%</span>`}</td>
+            <td style="font-size:12px">${esc(w.by||'')}</td>
+            <td><div class="btn-icon-row">${can?`<button class="icon-btn" data-wsedit="${w.id}" title="تعديل">${svgIcon('edit','sm')}</button>
+              <button class="icon-btn danger" data-wsdel="${w.id}" title="حذف">${svgIcon('trash','sm')}</button>`:''}</div></td>
+          </tr>`;}).join('')}</tbody>
+      </table></div>` : `<div class="empty-state">${svgIcon('waste')}<div>${wasteRecsOf(whId).length?'مفيش هالك في الفترة/البحث ده':'لسه مفيش هالك متسجل'}</div></div>`}
+    </div>
+  </div>`;
+  document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
+  const rr = ()=>renderWasteTab(whId);
+  document.querySelectorAll('[data-wsrange]').forEach(b=>b.addEventListener('click',()=>{ const v=b.dataset.wsrange; if(v==='all'){wsFrom='';wsTo='';} else {[wsFrom,wsTo]=trMonthRange(Number(v));} rr(); }));
+  const fD=document.getElementById('wsFromD'), tD=document.getElementById('wsToD');
+  fD.addEventListener('change',()=>{ wsFrom=fD.value; rr(); }); tD.addEventListener('change',()=>{ wsTo=tD.value; rr(); });
+  const sIn=document.getElementById('wsSearch');
+  sIn.addEventListener('input',()=>{ wsSearch=sIn.value; clearTimeout(sIn._t); sIn._t=setTimeout(()=>{ rr(); const n=document.getElementById('wsSearch'); n.focus(); n.setSelectionRange(n.value.length,n.value.length); },250); });
+  const add=document.getElementById('wsAdd'); if(add) add.addEventListener('click',()=>openWasteModal(whId));
+  document.querySelectorAll('[data-wsedit]').forEach(b=>b.addEventListener('click',()=>openWasteModal(whId, b.dataset.wsedit)));
+  document.querySelectorAll('[data-wsdel]').forEach(b=>b.addEventListener('click',async ()=>{
+    const w=(DB.waste||[]).find(x=>x.id===b.dataset.wsdel); if(!w) return;
+    if(!confirm(`حذف هالك "${w.item}" بتاريخ ${fmtDateAr(w.date)}؟`)) return;
+    wasteReverse(w);
+    DB.waste = DB.waste.filter(x=>x.id!==w.id);
+    logAction(`حذف هالك "${w.item}" (${fmtNum(w.qty)}) من ${whLabel(whId)}`);
+    await persist(); rr(); renderNav(); showToast('اتحذف');
+  }));
+  document.getElementById('wsExport').addEventListener('click',()=>{
+    if(!window.XLSX){ showToast('مكتبة Excel مش متاحة'); return; }
+    const rows = list.map(w=>({'التاريخ':w.date,'الصنف':w.item,'خد منه':w.taken??'','الهالك':Number(w.qty)||0,'الوحدة':unitShow(w.unit),'نسبة الهالك %':wastePct(w)??'','سجّله':w.by||''}));
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'الهالك');
+    XLSX.writeFile(wb,`${TITLES[tabId][0]}${wsFrom?' من '+wsFrom:''}${wsTo?' لحد '+wsTo:''}.xlsx`);
+  });
+  document.getElementById('wsPrint').addEventListener('click',()=>{
+    if(!list.length){ showToast('مفيش حاجة تتطبع'); return; }
+    document.getElementById('printArea').innerHTML=`
+    <div class="pr-header"><div><div class="pr-brand">egy<span>gulf</span> Foods</div><div class="pr-title">${esc(TITLES[tabId][0])}</div></div>
+    <div class="pr-meta">${wsFrom||wsTo?`الفترة: ${wsFrom?fmtDateAr(wsFrom):'البداية'} — ${wsTo?fmtDateAr(wsTo):'النهاردة'}<br>`:''}تاريخ الطباعة: ${new Date().toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'})}<br>بواسطة: ${esc(userTag())}</div></div>
+    <table><thead><tr><th>#</th><th>التاريخ</th><th>الصنف</th><th>خد منه</th><th>الهالك</th><th>النسبة</th></tr></thead><tbody>
+    ${list.map((w,i)=>{ const u=unitShow(w.unit); const p=wastePct(w); return `<tr><td>${i+1}</td><td>${fmtDateAr(w.date)}</td><td>${esc(w.item)}</td><td>${w.taken!==undefined&&w.taken!==null&&w.taken!==''?fmtNum(w.taken)+' '+esc(u):'—'}</td><td>${fmtNum(w.qty)} ${esc(u)}</td><td>${p===null?'—':p+'%'}</td></tr>`; }).join('')}</tbody>
+    <tfoot><tr><td colspan="3">الإجمالي</td><td>${unitTotals(withTaken,'taken')}</td><td>${unitTotals(list,'qty')}</td><td></td></tr></tfoot></table>
+    <div class="pr-foot">EgyGulf Foods — نظام إدارة المخازن والإنتاج</div>`;
+    window.print();
+  });
+}
+function openWasteModal(whId, editId){
+  const rec = editId ? (DB.waste||[]).find(x=>x.id===editId) : null;
+  if(!canEditWaste(whId)){ showToast('مش مسموحلك تسجّل هالك هنا'); return; }
+  document.getElementById('modalRoot').innerHTML = `
+    <div class="modal-overlay" id="overlay"><div class="modal" style="max-width:700px;">
+      <div class="modal-head"><h3>${rec?'تعديل هالك':'تسجيل هالك'} — ${esc(whLabel(whId))}</h3><button class="modal-close" id="closeX">✕</button></div>
+      <div class="modal-body">
+        <div class="field"><label>التاريخ *</label><input type="date" id="ws_date" value="${rec?esc(rec.date||todayISO()):todayISO()}" max="${todayISO()}"></div>
+        <div class="field"><label>الأصناف * <span class="muted" style="font-weight:500">(الصنف — خد منه كام — والهالك كام)</span></label>
+          <div id="wsRows" style="display:flex;flex-direction:column;gap:8px;"></div>
+          ${rec?'':`<button type="button" class="btn btn-ghost btn-sm" id="wsAddRow" style="margin-top:8px;">+ صنف تاني</button>`}
+          <datalist id="wsItemsList">${(whArray(whId)||[]).map(it=>`<option value="${esc(it.name)}">${esc(unitShow(it.unit))}</option>`).join('')}</datalist>
+        </div>
+        <div class="muted" style="font-size:12px;">الهالك للمتابعة بس — مش بيتخصم من رصيد المخزن. نسبة الهالك بتتحسب لوحدها.</div>
+      </div>
+      <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button><button class="btn btn-primary" id="saveBtn">${rec?'حفظ التعديل':'حفظ'}</button></div>
+    </div></div>`;
+  const overlay=document.getElementById('overlay');
+  overlay.addEventListener('click',e=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click',closeModal);
+  document.getElementById('cancelBtn').addEventListener('click',closeModal);
+  const wrap=document.getElementById('wsRows'); let n=0;
+  function addRow(v){
+    v=v||{};
+    const d=document.createElement('div'); d.className='ws-row';
+    d.style.cssText='display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;';
+    d.innerHTML=`
+      <div class="field" style="flex:2;margin:0;min-width:160px;"><label>${n===0?'الصنف':''}</label><input type="text" class="ws_item" list="wsItemsList" placeholder="اسم الصنف" value="${esc(v.item||'')}"></div>
+      <div class="field" style="flex:1;margin:0;min-width:90px;"><label>${n===0?'خد منه كام':''}</label><input type="number" step="0.01" class="ws_taken" placeholder="0" value="${v.taken!==undefined&&v.taken!==null?esc(v.taken):''}"></div>
+      <div class="field" style="flex:1;margin:0;min-width:90px;"><label>${n===0?'الهالك كام':''}</label><input type="number" step="0.01" class="ws_qty" placeholder="0" value="${v.qty!==undefined&&v.qty!==null?esc(v.qty):''}"></div>
+      <div class="field" style="flex:1;margin:0;min-width:105px;"><label>${n===0?'الوحدة':''}</label>${unitSelectHtml(null, v.unit, 'ws_unit')}</div>
+      ${rec?'':`<button type="button" class="icon-btn danger" title="حذف">${svgIcon('trash','sm')}</button>`}
+      <div class="muted ws_hint" style="font-size:11px;flex-basis:100%;margin-top:-4px;"></div>`;
+    wrap.appendChild(d); n++;
+    const del=d.querySelector('button'); if(del) del.onclick=()=>{ if(wrap.children.length>1) d.remove(); else showToast('لازم صنف واحد على الأقل'); };
+    const upd=()=>{
+      const name=d.querySelector('.ws_item').value.trim(), us=d.querySelector('.ws_unit');
+      const ms=name?(whArray(whId)||[]).filter(i=>i.name.trim()===name):[];
+      if(ms.length===1 && !us.value) setUnitSel(us, ms[0].unit);
+      const t=Number(d.querySelector('.ws_taken').value), q=Number(d.querySelector('.ws_qty').value);
+      d.querySelector('.ws_hint').textContent = (t>0 && q>=0 && d.querySelector('.ws_qty').value!=='') ? `نسبة الهالك: ${Math.round(q/t*1000)/10}%` : '';
+    };
+    d.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',upd));
+    d.querySelector('.ws_item').addEventListener('change',upd);
+    upd();
+  }
+  addRow(rec||null);
+  const ar=document.getElementById('wsAddRow'); if(ar) ar.addEventListener('click',()=>addRow());
+  document.getElementById('saveBtn').addEventListener('click', async ()=>{
+    const date=document.getElementById('ws_date').value;
+    if(!date){ showToast('اختار التاريخ'); return; }
+    const rows=[...wrap.querySelectorAll('.ws-row')].map(r=>({
+      item:r.querySelector('.ws_item').value.trim(),
+      takenRaw:r.querySelector('.ws_taken').value, qtyRaw:r.querySelector('.ws_qty').value,
+      unit:r.querySelector('.ws_unit').value.trim(),
+    })).filter(r=>r.item||r.takenRaw||r.qtyRaw);
+    if(!rows.length){ showToast('اكتب صنف واحد على الأقل'); return; }
+    for(const r of rows){
+      r.taken=Number(r.takenRaw); r.qty=Number(r.qtyRaw);
+      if(!r.item){ showToast('فيه صف من غير اسم صنف'); return; }
+      if(r.takenRaw==='' || !(r.taken>0)){ showToast(`اكتب "خد منه كام" لـ "${r.item}"`); return; }
+      if(r.qtyRaw==='' || Number.isNaN(r.qty) || r.qty<0){ showToast(`اكتب كمية الهالك لـ "${r.item}"`); return; }
+      if(r.qty>r.taken){ showToast(`الهالك (${fmtNum(r.qty)}) أكبر من اللي اتاخد (${fmtNum(r.taken)}) في "${r.item}"`); return; }
+      if(!r.unit){ showToast(`اختار الوحدة لـ "${r.item}"`); return; }
+    }
+    const lbl=whLabel(whId);
+    if(rec){
+      const r=rows[0];
+      Object.assign(rec,{date, item:r.item, taken:r.taken, qty:r.qty, unit:r.unit, warehouse:lbl, editedBy:userTag(), editedAt:new Date().toISOString()});
+      logAction(`عدّل هالك "${r.item}" في ${lbl}`);
+    } else {
+      DB.waste = DB.waste || [];
+      rows.forEach(r=>{ const w={id:uid(), date, warehouse:lbl, item:r.item, taken:r.taken, qty:r.qty, unit:r.unit, deducted:false, by:userTag(), createdAt:new Date().toISOString()}; DB.waste.unshift(w); });
+      logAction(`سجّل هالك في ${lbl}: ${rows.map(r=>`${r.item} (${fmtNum(r.qty)} من ${fmtNum(r.taken)} ${r.unit})`).join('، ')}`);
+    }
+    await persist(); closeModal(); renderWasteTab(whId); renderNav();
+    showToast(rec?'اتحفظ التعديل':'اتسجل الهالك');
+  });
+}
+
 function renderContent(){
   tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
   selectedProdGroups.clear();
@@ -5522,6 +5714,7 @@ function renderContent(){
   else if(currentTab==='observerNotes') renderObserverNotesTab();
   else if(currentTab==='customerOrders') renderExternalOrdersTab();
   else if(currentTab==='auditLog') renderAuditLogTab();
+  else if(currentTab==='wasteMan' || currentTab==='wastePack') renderWasteTab(WASTE_TAB_WH[currentTab]);
   else renderGenericTab(currentTab);
 }
 
