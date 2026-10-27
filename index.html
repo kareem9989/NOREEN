@@ -281,6 +281,62 @@ body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer
   @page{margin:14mm;}
 }
 
+/* ===== تقرير الصالة: الفورم ===== */
+.hl-sec{border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:12px;}
+.hl-sec h4{margin:0 0 10px;font-size:14px;color:var(--navy);display:flex;align-items:center;gap:8px;}
+.hl-sec h4 .n{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--gold);color:var(--navy);font-size:12px;align-items:center;justify-content:center;font-weight:800;}
+.hl-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px;}
+.hl-row .field{margin:0;}
+.hl-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.hl-chip{padding:6px 12px;border-radius:999px;border:1px solid var(--border);font-size:12.5px;font-weight:700;color:var(--ink-soft);background:var(--card);}
+.hl-chip.on{background:var(--navy);color:#fff;border-color:var(--navy);}
+.hl-workers{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;}
+.hl-worker{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:10px;font-size:12.5px;}
+.hl-worker input{width:auto;}
+.hl-worker .j{color:var(--ink-soft);font-size:11.5px;margin-inline-start:auto;}
+.hl-total{font-weight:800;color:var(--navy);font-size:13px;margin-top:4px;}
+
+/* ===== تقرير الصالة: ورقة الطباعة ===== */
+#printArea .hr-page{font-family:'Cairo','Tajawal',Tahoma,Arial,sans-serif;color:#1E1D3D;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+#printArea .hr-top{display:flex;justify-content:space-between;align-items:center;gap:16px;padding-bottom:12px;}
+#printArea .hr-top img{height:58px;}
+#printArea .hr-title{font-size:22px;font-weight:800;color:#2D2B74;line-height:1.3;}
+#printArea .hr-sub{font-size:11px;color:#6B698F;margin-top:2px;}
+#printArea .hr-band{height:6px;border-radius:4px;background:linear-gradient(90deg,#FEB913 0 22%,#2D2B74 22% 100%);margin-bottom:14px;}
+#printArea .hr-info{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;}
+#printArea .hr-info div{border:1px solid #E6E5F2;border-radius:10px;padding:7px 10px;background:#FAFAFE;}
+#printArea .hr-info b{display:block;font-size:9.5px;color:#6B698F;font-weight:700;margin-bottom:2px;}
+#printArea .hr-info span{font-size:12.5px;font-weight:800;color:#1E1D3D;}
+#printArea .hr-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
+#printArea .hr-kpi{border-radius:12px;padding:10px 12px;background:#2D2B74;color:#fff;}
+#printArea .hr-kpi.g{background:#FEB913;color:#2D2B74;}
+#printArea .hr-kpi.l{background:#EDECFA;color:#2D2B74;}
+#printArea .hr-kpi.r{background:#FDE7EA;color:#B4233A;}
+#printArea .hr-kpi b{display:block;font-size:9.5px;font-weight:700;opacity:.85;}
+#printArea .hr-kpi span{font-size:19px;font-weight:800;}
+#printArea .hr-kpi small{font-size:11px;font-weight:700;}
+#printArea .hr-sec{margin-bottom:12px;break-inside:avoid;}
+#printArea .hr-sec h3{font-size:13px;font-weight:800;color:#2D2B74;margin:0 0 6px;display:flex;align-items:center;gap:7px;}
+#printArea .hr-sec h3 i{font-style:normal;display:inline-flex;width:20px;height:20px;border-radius:50%;background:#FEB913;color:#2D2B74;font-size:11px;align-items:center;justify-content:center;}
+#printArea .hr-grid2{display:grid;grid-template-columns:1.15fr 1fr;gap:12px;}
+#printArea .hr-page table{font-size:11px;margin-top:0;}
+#printArea .hr-page th{background:#2D2B74;color:#fff;border-color:#2D2B74;}
+#printArea .hr-page tbody tr:nth-child(even) td{background:#FAFAFE;}
+#printArea .hr-page tfoot td{background:#FFF3D6;color:#2D2B74;}
+#printArea .hr-bar{height:7px;border-radius:4px;background:#EDECFA;overflow:hidden;min-width:50px;}
+#printArea .hr-bar i{display:block;height:100%;background:#E0435B;border-radius:4px;}
+#printArea .hr-chips{display:flex;flex-wrap:wrap;gap:5px;}
+#printArea .hr-chips span{padding:3px 11px;border-radius:999px;background:#FFF3D6;color:#2D2B74;font-weight:800;font-size:11px;border:1px solid #FEB913;}
+#printArea .hr-workers{display:grid;grid-template-columns:repeat(3,1fr);gap:5px 10px;font-size:10.5px;}
+#printArea .hr-workers div{display:flex;gap:6px;padding:4px 8px;border-bottom:1px dashed #E6E5F2;}
+#printArea .hr-workers em{font-style:normal;font-weight:800;color:#FEB913;min-width:16px;}
+#printArea .hr-workers small{margin-inline-start:auto;color:#6B698F;}
+#printArea .hr-notes{border:1px solid #E6E5F2;border-radius:10px;padding:8px 12px;font-size:11px;min-height:34px;background:#FAFAFE;}
+#printArea .hr-sign{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:22px;}
+#printArea .hr-sign div{text-align:center;font-size:11px;font-weight:700;color:#2D2B74;}
+#printArea .hr-sign .ln{height:34px;border-bottom:1.5px solid #2D2B74;margin-bottom:5px;font-weight:600;color:#1E1D3D;display:flex;align-items:flex-end;justify-content:center;padding-bottom:3px;}
+#printArea .hr-foot{margin-top:14px;padding-top:8px;border-top:2px solid #FEB913;display:flex;justify-content:space-between;font-size:9.5px;color:#6B698F;}
+
 /* الوحدة جنب الرصيد */
 .unit-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 16px;padding:10px 14px;border-radius:12px;background:rgba(220,53,69,.08);color:var(--ink);font-size:13px;}
 .unit-chip{display:inline-block;margin-inline-start:6px;padding:2px 9px;border-radius:999px;background:var(--tint);color:var(--navy);font-weight:700;font-size:12px;font-family:inherit;}
@@ -629,7 +685,7 @@ input.trc-picked{border-color:var(--ok) !important;}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 27-10 — v25</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 27-10 — v27</span></div>
   </aside>
 
   <div class="main">
@@ -702,8 +758,8 @@ const AUTH_KEY = 'egygulf-foods-auth-v1';
 let currentUser = null; // {role:'admin'|'warehouse'}
 const WAREHOUSE_TABS = ['raw','whManufacturing','purchaseRequests','purchases','transfers','shortageReports','whReport','lowStock']; // أمين مخزن الخامات
 const ROLE_TABS = { // كل مخزن ليه أمين لوحده
-  whman:  ['whManufacturing','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','wasteMan'],
-  whpack: ['whPackaging','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','wastePack'],
+  whman:  ['whManufacturing','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','hallMan','wasteMan'],
+  whpack: ['whPackaging','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','hallPack','wastePack'],
   whfin:  ['whFinished','transfers','shortageReports','whReport','lowStock'],
 };
 // تابات بيشوفها الدور من غير ما يعدّل فيها (لا إضافة ولا صرف ولا تعديل ولا حذف)
@@ -718,7 +774,7 @@ function isReadOnlyTab(tabId){ if(isViewer()) return true; return !!(currentUser
 function allowedRawCats(){ return currentUser ? (ROLE_RAW_CATS[currentUser.role]||null) : null; }
 function rawCatAllowed(item){ const c = allowedRawCats(); return !c || c.includes((item.category||'').trim()); }
 const CAIRO_TABS = ['cairoRequests','fillingReports','productionReports'];
-const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','transfers','shortageReports','whReport','lowStock','wasteMan','wastePack','cairoRequests','fillingReports','productionReports'];
+const OPERATION_TABS = ['raw','whManufacturing','whPackaging','whFinished','transfers','shortageReports','whReport','lowStock','hallMan','hallPack','wasteMan','wastePack','cairoRequests','fillingReports','productionReports'];
 function isTabAllowed(tabId){
   if(!currentUser) return false;
   if(currentUser.role==='admin') return true;
@@ -859,6 +915,7 @@ function freshDB(){
     whManufacturing: [],
     whPackaging: [],
     whFinished: finishedSeedItems(),
+    hallReports: [],
     transfers: [],
     dispatches: [],
     importedOrders: [],
@@ -879,7 +936,7 @@ function freshDB(){
    بعمل حاجة مختلفة تمامًا في نفس الوقت. كمان كل حفظ بيعمل "دمج" مع آخر نسخة على
    السيرفر بدل الكتابة فوقها بالكامل، عشان لو حد تاني ضاف صنف جديد من وقت ما حمّلنا
    إحنا الصفحة، الصنف ده ميتمسحش. */
-const DB_KEYS = ['settings','users','raw','production','waste','breakdowns','purchases','purchaseRequests','whManufacturing','whPackaging','whFinished','transfers','dispatches','importedOrders','suppliers','itemCard','auditLog','knownUsers','cairoRequests','fillingReports','productionReports','shortageReports','observerNotes'];
+const DB_KEYS = ['settings','users','raw','production','waste','breakdowns','purchases','purchaseRequests','whManufacturing','whPackaging','whFinished','transfers','dispatches','importedOrders','suppliers','itemCard','auditLog','knownUsers','cairoRequests','fillingReports','productionReports','shortageReports','observerNotes','hallReports'];
 function collKey(k){ return STORAGE_KEY + '__' + k; }
 let LOCAL_SNAPSHOT = {}; // key -> آخر نسخة متفق عليها مع السيرفر (JSON للمجموعة كلها)
 let ITEM_SNAPSHOT = {};  // key -> Map(id -> JSON لكل صنف) من آخر نسخة متفق عليها مع السيرفر
@@ -1340,6 +1397,8 @@ const TABS = [
   {id:'production', label:'الإنتاج اليومي', ic:'production'},
   {id:'productionReports', label:'تقرير الانتاج', ic:'production'},
   {id:'fillingReports', label:'تقرير التعبئة', ic:'box'},
+  {id:'hallMan', label:'تقرير صالة التصنيع', ic:'production'},
+  {id:'hallPack', label:'تقرير صالة التعبئة', ic:'box'},
   {id:'wasteMan', label:'هالك التصنيع', ic:'waste'},
   {id:'wastePack', label:'هالك التعبئة والتغليف', ic:'waste'},
   {id:'breakdowns', label:'الأعطال', ic:'breakdowns'},
@@ -1367,6 +1426,8 @@ const TITLES = {
   productionReports:['تقرير الانتاج','تسجيل تقرير الانتاج لكل أوردر: الصنف ووزن الوحدة والكمية المسلمة للتعبئة'],
   fillingReports:['تقرير التعبئة','تسجيل تقرير التعبئة لكل أوردر: الكميات المستلمة من الإنتاج، الهالك، والكراتين المسلمة للمخازن'],
   waste:['تقرير الهالك','تسجيل الهالك اليومي وأسبابه'],
+  hallMan:['تقرير صالة التصنيع','تقرير اليوم: الأوردر والكميات، الحلل والطعوم، والهالك بأنواعه'],
+  hallPack:['تقرير صالة التعبئة والتغليف','تقرير اليوم: استلموا كام من التصنيع، عبّوا كام، والهالك بأنواعه'],
   wasteMan:['هالك التصنيع','الصنف، خد منه كام، والهالك كان قد إيه — لمخزن التصنيع'],
   wastePack:['هالك التعبئة والتغليف','الصنف، خد منه كام، والهالك كان قد إيه — لمخزن التعبئة والتغليف'],
   breakdowns:['الأعطال','تسجيل أعطال وتوقفات خط الإنتاج'],
@@ -1381,6 +1442,7 @@ function renderNav(){
     if(t.id==='raw') count = DB.raw.filter(rawCatAllowed).length;
     else if(t.id==='production') count = DB.production.length;
     else if(t.id==='waste') count = DB.waste.length;
+    else if(t.id==='hallMan' || t.id==='hallPack') count = (DB.hallReports||[]).filter(r=>r.dept===HALL_TAB_DEPT[t.id]).length;
     else if(t.id==='wasteMan' || t.id==='wastePack') count = wasteRecsOf(WASTE_TAB_WH[t.id]).length;
     else if(t.id==='breakdowns') count = DB.breakdowns.length;
     else if(t.id==='shortageReports') count = (isAdmin ? (DB.shortageReports||[]).filter(r=>r.status==='pending').length : visibleShortages().filter(r=>r.status==='pending').length) || '';
@@ -5589,8 +5651,8 @@ function renderWasteTab(whId){
             <td class="num" style="color:var(--danger)">${fmtNum(w.qty)}${u?` <span class="unit-chip">${esc(u)}</span>`:''}</td>
             <td class="num">${pct===null?'<span class="muted">—</span>':`<span class="pill ${pct>10?'pill-danger':(pct>5?'pill-warn':'pill-ok')}">${pct}%</span>`}</td>
             <td style="font-size:12px">${esc(w.by||'')}</td>
-            <td><div class="btn-icon-row">${can?`<button class="icon-btn" data-wsedit="${w.id}" title="تعديل">${svgIcon('edit','sm')}</button>
-              <button class="icon-btn danger" data-wsdel="${w.id}" title="حذف">${svgIcon('trash','sm')}</button>`:''}</div></td>
+            <td><div class="btn-icon-row">${w.hallRef?`<span class="pill pill-navy" style="font-size:11px" title="بيتعدّل من تقرير الصالة">من تقرير الصالة</span>`:(can?`<button class="icon-btn" data-wsedit="${w.id}" title="تعديل">${svgIcon('edit','sm')}</button>
+              <button class="icon-btn danger" data-wsdel="${w.id}" title="حذف">${svgIcon('trash','sm')}</button>`:'')}</div></td>
           </tr>`;}).join('')}</tbody>
       </table></div>` : `<div class="empty-state">${svgIcon('waste')}<div>${wasteRecsOf(whId).length?'مفيش هالك في الفترة/البحث ده':'لسه مفيش هالك متسجل'}</div></div>`}
     </div>
@@ -5710,6 +5772,282 @@ function openWasteModal(whId, editId){
   });
 }
 
+/* ================= تقرير الصالة: التصنيع + التعبئة والتغليف =================
+   نسخة إلكترونية من ورقة "تقرير صالة الإنتاج". الهالك بيتسجل لوحده في تابة هالك القسم. */
+const HALL_TAB_DEPT = { hallMan:'manufacturing', hallPack:'packaging' };
+const HALL_LOGO = 'data:image/png;base64,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';
+const HALL_DEPT = {
+  manufacturing:{ title:'تقرير صالة التصنيع', short:'التصنيع', code:'HM',
+    wasteTypes:['كسر مصاصة','كسر بونبون','عصيان (مكنة)','عصيان (مجرشة)','رول (فيلم التغليف)','مصاصة باظت في التشكيل'],
+    jobs:['مدير المصنع','مدير الإنتاج','مطبخ','تقطيع','فورمة','تجميع الأفلام','تشغيل مكنة','فرز مكنة','فرز بونبون','مجرشة','تغليف'] },
+  packaging:{ title:'تقرير صالة التعبئة والتغليف', short:'التعبئة والتغليف', code:'HP',
+    wasteTypes:['أكياس','عبوات (برطمان / علب / رشاقة)','كراتين','استيكر','ورق تغليف','مصاصة اتكسرت وقت التعبئة'],
+    jobs:['مشرف التعبئة','تعبئة','تغليف','تكريتن','استيكر','فرز','وزن'] },
+};
+const HALL_FLAVORS = ['مانجو','كولا','فراولة','تفاح','تفاح أخضر','توت','بطيخ','فواكه','كريز','ليمون','برتقال','لبان'];
+let hlFrom = '', hlTo = '';
+function hallReportsOf(dept){ return (DB.hallReports||[]).filter(r=>r.dept===dept); }
+function canEditHall(dept){ return !isViewer() && (isAllWhUser() || myWarehouse()===dept); }
+function hallTotal(r){ return Math.round((r.products||[]).reduce((t,p)=>t+(Number(r.dept==='packaging'?p.received:p.qty)||0),0)*100)/100; }
+function hallWasteTotal(r){ return Math.round((r.waste||[]).reduce((t,w)=>t+(Number(w.qty)||0),0)*100)/100; }
+function hallPct(r){ const t=hallTotal(r); return t>0 ? Math.round(hallWasteTotal(r)/t*1000)/10 : null; }
+function hallNo(r){ return `${HALL_DEPT[r.dept].code}-${String(r.date||'').replace(/-/g,'')}-${String(r.id).slice(-3).toUpperCase()}`; }
+function hallOrderOptions(){ return [...new Set([...(typeof FINISHED_COUNTRIES!=='undefined'?FINISHED_COUNTRIES:[]), ...getAllOrderNames(), ...(DB.hallReports||[]).map(r=>r.order).filter(Boolean)])]; }
+function hallRoster(dept){ DB.settings.hallWorkers = DB.settings.hallWorkers || {}; return DB.settings.hallWorkers[dept] = DB.settings.hallWorkers[dept] || []; }
+function hallDayName(d){ try{ return new Date(d+'T12:00:00').toLocaleDateString('ar-EG',{weekday:'long'}); }catch(e){ return ''; } }
+
+/* الهالك بتاع التقرير بيتسجل في DB.waste (تابة هالك القسم) — بيتمسح ويتعمل تاني مع كل تعديل */
+function hallSyncWaste(r){
+  DB.waste = (DB.waste||[]).filter(w=>w.hallRef!==r.id);
+  const lbl = whLabel(r.dept), total = hallTotal(r);
+  (r.waste||[]).forEach(w=>{
+    if(!(Number(w.qty)>0)) return;
+    DB.waste.unshift({id:uid(), hallRef:r.id, date:r.date, warehouse:lbl, item:w.type, taken: total>0?total:'', qty:Number(w.qty), unit:w.unit||'كجم', deducted:false, by:r.by||userTag(), createdAt:new Date().toISOString()});
+  });
+}
+
+function renderHallTab(dept){
+  const D = HALL_DEPT[dept];
+  const can = canEditHall(dept);
+  const list = hallReportsOf(dept).filter(r=>(!hlFrom||r.date>=hlFrom)&&(!hlTo||r.date<=hlTo))
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||'') || String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  const [m0a,m0b]=trMonthRange(0), [m1a,m1b]=trMonthRange(-1);
+  const sumT = list.reduce((t,r)=>t+hallTotal(r),0), sumW = list.reduce((t,r)=>t+hallWasteTotal(r),0);
+  const pctAll = sumT>0 ? Math.round(sumW/sumT*1000)/10 : null;
+  const pctPill = p=> p===null?'<span class="muted">—</span>':`<span class="pill ${p>10?'pill-danger':(p>5?'pill-warn':'pill-ok')}">${p}%</span>`;
+  const html = `
+  <div class="cards-grid" style="margin-bottom:14px;">
+    <div class="stat-card"><div class="icon-wrap">${svgIcon('history')}</div><div class="label">عدد التقارير</div><div class="value">${list.length}</div></div>
+    <div class="stat-card"><div class="icon-wrap gold">${svgIcon('box')}</div><div class="label">${dept==='packaging'?'إجمالي اللي استلموه':'إجمالي الإنتاج'}</div><div class="value">${fmtNum(Math.round(sumT*100)/100)} <span style="font-size:14px">كجم</span></div></div>
+    <div class="stat-card"><div class="icon-wrap danger">${svgIcon('waste')}</div><div class="label">إجمالي الهالك</div><div class="value">${fmtNum(Math.round(sumW*100)/100)} <span style="font-size:14px">كجم</span></div><div class="foot">نسبة الهالك: ${pctAll===null?'—':pctAll+'%'}</div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>${esc(D.title)} <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
+      <div class="toolbar">${can?`<button class="btn btn-gold" id="hlAdd">+ تقرير جديد</button>`:''}</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px;padding:0 18px 12px;">
+      <span class="muted">الفترة:</span>
+      <button class="btn btn-sm ${hlFrom===m0a&&hlTo===m0b?'btn-primary':'btn-ghost'}" data-hlrange="0">الشهر ده</button>
+      <button class="btn btn-sm ${hlFrom===m1a&&hlTo===m1b?'btn-primary':'btn-ghost'}" data-hlrange="-1">الشهر اللي فات</button>
+      <button class="btn btn-sm ${!hlFrom&&!hlTo?'btn-primary':'btn-ghost'}" data-hlrange="all">كل الفترات</button>
+      <span class="muted">أو من</span><input type="date" id="hlFromD" value="${hlFrom}" style="width:auto;">
+      <span class="muted">لحد</span><input type="date" id="hlToD" value="${hlTo}" style="width:auto;">
+    </div>
+    <div class="panel-body">${list.length?`<div class="table-wrap"><table>
+      <thead><tr><th>التاريخ</th><th>الأوردر</th><th>الأصناف</th><th>${dept==='packaging'?'استلموا':'الإنتاج'}</th>${dept==='manufacturing'?'<th>الحلل</th>':''}<th>الهالك</th><th>النسبة</th><th></th></tr></thead>
+      <tbody>${list.map(r=>`<tr>
+        <td><div style="font-weight:800">${fmtDateAr(r.date)}</div><div class="muted" style="font-size:11px">${esc(hallDayName(r.date))} · ${esc(hallNo(r))}</div></td>
+        <td><span class="pill pill-navy">${esc(r.order||'—')}</span></td>
+        <td style="font-size:12.5px">${(r.products||[]).map(p=>esc(p.name)).join('<br>')}</td>
+        <td class="num">${fmtNum(hallTotal(r))} <span class="unit-chip">كجم</span></td>
+        ${dept==='manufacturing'?`<td class="num">${r.batches?fmtNum(r.batches):'—'}</td>`:''}
+        <td class="num" style="color:var(--danger)">${fmtNum(hallWasteTotal(r))} <span class="unit-chip">كجم</span></td>
+        <td>${pctPill(hallPct(r))}</td>
+        <td><div class="btn-icon-row">
+          <button class="btn btn-sm btn-primary" data-hlprint="${r.id}">${svgIcon('print','sm')} طباعة</button>
+          ${can?`<button class="icon-btn" data-hledit="${r.id}" title="تعديل">${svgIcon('edit','sm')}</button><button class="icon-btn danger" data-hldel="${r.id}" title="حذف">${svgIcon('trash','sm')}</button>`:''}
+        </div></td></tr>`).join('')}</tbody></table></div>`
+      : `<div class="empty-state">${svgIcon('production')}<div>${hallReportsOf(dept).length?'مفيش تقارير في الفترة دي':'لسه مفيش تقارير — دوس "+ تقرير جديد"'}</div></div>`}</div>
+  </div>`;
+  document.getElementById('content').innerHTML = `<div class="content-fade">${html}</div>`;
+  const rr=()=>renderHallTab(dept);
+  document.querySelectorAll('[data-hlrange]').forEach(b=>b.addEventListener('click',()=>{ const v=b.dataset.hlrange; if(v==='all'){hlFrom='';hlTo='';} else {[hlFrom,hlTo]=trMonthRange(Number(v));} rr(); }));
+  const fD=document.getElementById('hlFromD'), tD=document.getElementById('hlToD');
+  fD.addEventListener('change',()=>{hlFrom=fD.value;rr();}); tD.addEventListener('change',()=>{hlTo=tD.value;rr();});
+  const a=document.getElementById('hlAdd'); if(a) a.addEventListener('click',()=>openHallModal(dept));
+  document.querySelectorAll('[data-hledit]').forEach(b=>b.addEventListener('click',()=>openHallModal(dept,b.dataset.hledit)));
+  document.querySelectorAll('[data-hlprint]').forEach(b=>b.addEventListener('click',()=>printHallReport(b.dataset.hlprint)));
+  document.querySelectorAll('[data-hldel]').forEach(b=>b.addEventListener('click',async ()=>{
+    const r=(DB.hallReports||[]).find(x=>x.id===b.dataset.hldel); if(!r) return;
+    if(!confirm(`حذف ${D.title} بتاريخ ${fmtDateAr(r.date)}؟ (الهالك بتاعه هيتمسح من تابة الهالك كمان)`)) return;
+    DB.hallReports = DB.hallReports.filter(x=>x.id!==r.id);
+    DB.waste = (DB.waste||[]).filter(w=>w.hallRef!==r.id);
+    logAction(`حذف ${D.title} بتاريخ ${r.date}`);
+    await persist(); rr(); renderNav(); showToast('اتحذف التقرير');
+  }));
+}
+
+function openHallModal(dept, editId){
+  const D = HALL_DEPT[dept];
+  const rec = editId ? (DB.hallReports||[]).find(x=>x.id===editId) : null;
+  if(!canEditHall(dept)){ showToast('مش مسموحلك تكتب التقرير ده'); return; }
+  const isPack = dept==='packaging';
+  const flavors = new Set(rec?rec.flavors||[]:[]);
+  const flavorList = [...new Set([...HALL_FLAVORS, ...flavors])];
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" id="overlay"><div class="modal" style="max-width:860px;">
+    <div class="modal-head"><h3>${rec?'تعديل':'تقرير جديد'} — ${esc(D.title)}</h3><button class="modal-close" id="closeX">✕</button></div>
+    <div class="modal-body">
+      <datalist id="hlOrders">${hallOrderOptions().map(o=>`<option value="${esc(o)}">`).join('')}</datalist>
+      <datalist id="hlProducts">${[...new Set([...(whArray(dept)||[]).map(i=>i.name), ...(DB.hallReports||[]).flatMap(r=>(r.products||[]).map(p=>p.name))])].map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+      <datalist id="hlWasteTypes">${D.wasteTypes.map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
+      <div class="hl-sec"><h4><span class="n">1</span> البيانات الأساسية</h4>
+        <div class="hl-row">
+          <div class="field" style="flex:1;min-width:150px;"><label>التاريخ *</label><input type="date" id="hl_date" value="${rec?esc(rec.date):todayISO()}" max="${todayISO()}"></div>
+          <div class="field" style="flex:1.4;min-width:170px;"><label>الأوردر / الدولة *</label><input type="text" id="hl_order" list="hlOrders" placeholder="مثال: السنغال" value="${rec?esc(rec.order||''):''}"></div>
+          <div class="field" style="flex:1.4;min-width:170px;"><label>مسؤول الصالة</label><input type="text" id="hl_sup" placeholder="اسم اللي كاتب التقرير" value="${rec?esc(rec.supervisor||''):''}"></div>
+        </div>
+      </div>
+      <div class="hl-sec"><h4><span class="n">2</span> ${isPack?'الأصناف: استلموا كام من التصنيع وعبّوا كام':'الأصناف والكميات المنتجة'}</h4>
+        <div id="hlProds"></div>
+        <button type="button" class="btn btn-ghost btn-sm" id="hlAddProd">+ صنف تاني</button>
+        <div class="hl-total" id="hlProdTotal"></div>
+      </div>
+      ${isPack?'':`<div class="hl-sec"><h4><span class="n">3</span> الحلل والطعوم</h4>
+        <div class="hl-row"><div class="field" style="width:160px;"><label>عدد الحلل</label><input type="number" step="1" min="0" id="hl_batches" placeholder="0" value="${rec&&rec.batches?esc(rec.batches):''}"></div></div>
+        <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;">الطعوم (دوس عليها)</label>
+        <div class="hl-chips" id="hlFlavors">${flavorList.map(f=>`<button type="button" class="hl-chip ${flavors.has(f)?'on':''}" data-fl="${esc(f)}">${esc(f)}</button>`).join('')}</div>
+        <div class="hl-row" style="margin-top:8px;"><div class="field" style="flex:1;max-width:260px;"><input type="text" id="hl_newFlavor" placeholder="طعم مش موجود؟ اكتبه واضغط Enter"></div></div>
+      </div>`}
+      <div class="hl-sec"><h4><span class="n">${isPack?3:4}</span> الهالك</h4>
+        <div id="hlWaste"></div>
+        <button type="button" class="btn btn-ghost btn-sm" id="hlAddWaste">+ نوع هالك تاني</button>
+        <div class="hl-total" id="hlWasteTotal"></div>
+        <div class="muted" style="font-size:11.5px;margin-top:4px;">الهالك بيتسجل لوحده في تابة "هالك ${esc(D.short)}" — ومش بيتخصم من رصيد المخزن.</div>
+      </div>
+      <div class="field"><label>ملاحظات</label><input type="text" id="hl_notes" placeholder="أي ملاحظة على اليوم (عطل، تأخير...)" value="${rec?esc(rec.notes||''):''}"></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button>
+      <button class="btn btn-ghost" id="saveOnlyBtn">حفظ</button>
+      <button class="btn btn-primary" id="savePrintBtn">${svgIcon('print','sm')} حفظ وطباعة</button></div>
+  </div></div>`;
+  const overlay=document.getElementById('overlay');
+  overlay.addEventListener('click',e=>{ if(e.target===overlay) closeModal(); });
+  document.getElementById('closeX').addEventListener('click',closeModal);
+  document.getElementById('cancelBtn').addEventListener('click',closeModal);
+  const num = v=>{ const n=Number(v); return Number.isNaN(n)?0:n; };
+  const prodWrap=document.getElementById('hlProds'), wasteWrap=document.getElementById('hlWaste');
+  function updTotals(){
+    const t=[...prodWrap.querySelectorAll('.hl-prod')].reduce((a,r)=>a+num(r.querySelector(isPack?'.hp_rec':'.hp_qty').value),0);
+    const w=[...wasteWrap.querySelectorAll('.hl-waste')].reduce((a,r)=>a+num(r.querySelector('.hw_qty').value),0);
+    document.getElementById('hlProdTotal').textContent = `الإجمالي: ${fmtNum(Math.round(t*100)/100)} كجم`;
+    document.getElementById('hlWasteTotal').textContent = `إجمالي الهالك: ${fmtNum(Math.round(w*100)/100)} كجم${t>0?` — نسبة الهالك ${Math.round(w/t*1000)/10}%`:''}`;
+  }
+  function addProd(v){
+    v=v||{}; const d=document.createElement('div'); d.className='hl-row hl-prod'; const first=!prodWrap.children.length;
+    d.innerHTML = isPack ? `
+      <div class="field" style="flex:2;min-width:180px;"><label>${first?'الصنف':''}</label><input type="text" class="hp_name" list="hlProducts" placeholder="مثال: مصاصة لايت 14جم" value="${esc(v.name||'')}"></div>
+      <div class="field" style="flex:1;min-width:100px;"><label>${first?'استلموا (كجم)':''}</label><input type="number" step="0.01" class="hp_rec" placeholder="0" value="${v.received??''}"></div>
+      <div class="field" style="flex:1;min-width:90px;"><label>${first?'عبّوا':''}</label><input type="number" step="0.01" class="hp_packed" placeholder="0" value="${v.packed??''}"></div>
+      <div class="field" style="flex:1;min-width:105px;"><label>${first?'وحدة التعبئة':''}</label>${unitSelectHtml(null, v.packedUnit||'كرتونة', 'hp_unit')}</div>
+      <button type="button" class="icon-btn danger" title="حذف">${svgIcon('trash','sm')}</button>` : `
+      <div class="field" style="flex:2.2;min-width:200px;"><label>${first?'الصنف':''}</label><input type="text" class="hp_name" list="hlProducts" placeholder="مثال: مصاصة توتي لولي 18جم" value="${esc(v.name||'')}"></div>
+      <div class="field" style="flex:1;min-width:110px;"><label>${first?'الكمية (كجم)':''}</label><input type="number" step="0.01" class="hp_qty" placeholder="0" value="${v.qty??''}"></div>
+      <button type="button" class="icon-btn danger" title="حذف">${svgIcon('trash','sm')}</button>`;
+    prodWrap.appendChild(d);
+    d.querySelector('button').onclick=()=>{ if(prodWrap.children.length>1){ d.remove(); updTotals(); } else showToast('لازم صنف واحد على الأقل'); };
+    d.querySelectorAll('input').forEach(i=>i.addEventListener('input',updTotals));
+  }
+  function addWaste(v){
+    v=v||{}; const d=document.createElement('div'); d.className='hl-row hl-waste'; const first=!wasteWrap.children.length;
+    d.innerHTML = `
+      <div class="field" style="flex:2.2;min-width:200px;"><label>${first?'نوع الهالك':''}</label><input type="text" class="hw_type" list="hlWasteTypes" placeholder="اختار أو اكتب" value="${esc(v.type||'')}"></div>
+      <div class="field" style="flex:1;min-width:110px;"><label>${first?'الكمية (كجم)':''}</label><input type="number" step="0.01" class="hw_qty" placeholder="0" value="${v.qty??''}"></div>
+      <button type="button" class="icon-btn danger" title="حذف">${svgIcon('trash','sm')}</button>`;
+    wasteWrap.appendChild(d);
+    d.querySelector('button').onclick=()=>{ d.remove(); updTotals(); };
+    d.querySelectorAll('input').forEach(i=>i.addEventListener('input',updTotals));
+  }
+  (rec&&rec.products&&rec.products.length?rec.products:[{}]).forEach(addProd);
+  if(rec&&rec.waste&&rec.waste.length) rec.waste.forEach(addWaste); else D.wasteTypes.forEach(t=>addWaste({type:t}));
+  updTotals();
+  document.getElementById('hlAddProd').addEventListener('click',()=>addProd());
+  document.getElementById('hlAddWaste').addEventListener('click',()=>addWaste());
+  const flWrap=document.getElementById('hlFlavors');
+  if(flWrap){
+    flWrap.addEventListener('click',e=>{ const c=e.target.closest('.hl-chip'); if(c) c.classList.toggle('on'); });
+    const nf=document.getElementById('hl_newFlavor');
+    nf.addEventListener('keydown',e=>{ if(e.key!=='Enter') return; e.preventDefault(); const v=nf.value.trim(); if(!v) return;
+      if(![...flWrap.children].some(c=>c.dataset.fl===v)) flWrap.insertAdjacentHTML('beforeend',`<button type="button" class="hl-chip on" data-fl="${esc(v)}">${esc(v)}</button>`);
+      nf.value=''; });
+  }
+  async function save(andPrint){
+    const date=document.getElementById('hl_date').value, order=document.getElementById('hl_order').value.trim();
+    if(!date){ showToast('اختار التاريخ'); return; }
+    if(!order){ showToast('اكتب الأوردر / الدولة'); return; }
+    const products=[...prodWrap.querySelectorAll('.hl-prod')].map(r=> isPack ? {
+      name:r.querySelector('.hp_name').value.trim(), received:num(r.querySelector('.hp_rec').value), packed:num(r.querySelector('.hp_packed').value), packedUnit:r.querySelector('.hp_unit').value
+    } : { name:r.querySelector('.hp_name').value.trim(), qty:num(r.querySelector('.hp_qty').value) }).filter(p=>p.name|| (isPack?p.received:p.qty));
+    if(!products.length){ showToast('اكتب صنف واحد على الأقل'); return; }
+    for(const p of products){
+      if(!p.name){ showToast('فيه صف أصناف من غير اسم'); return; }
+      if(!((isPack?p.received:p.qty)>0)){ showToast(`اكتب ${isPack?'الكمية اللي استلموها':'الكمية'} لـ "${p.name}"`); return; }
+    }
+    const waste=[...wasteWrap.querySelectorAll('.hl-waste')].map(r=>({type:r.querySelector('.hw_type').value.trim(), qty:num(r.querySelector('.hw_qty').value), unit:'كجم'})).filter(w=>w.type && w.qty>0);
+    if([...wasteWrap.querySelectorAll('.hl-waste')].some(r=>!r.querySelector('.hw_type').value.trim() && num(r.querySelector('.hw_qty').value)>0)){ showToast('فيه هالك من غير نوع'); return; }
+    const data={dept, date, order, supervisor:document.getElementById('hl_sup').value.trim(), products, waste, notes:document.getElementById('hl_notes').value.trim()};
+    if(!isPack){ data.batches=num(document.getElementById('hl_batches').value); data.flavors=[...document.querySelectorAll('#hlFlavors .hl-chip.on')].map(c=>c.dataset.fl); }
+    DB.hallReports = DB.hallReports || [];
+    let r;
+    if(rec){ r=rec; Object.assign(r, data, {editedBy:userTag(), editedAt:new Date().toISOString()}); logAction(`عدّل ${D.title} بتاريخ ${date}`); }
+    else { r={id:uid(), ...data, by:userTag(), createdAt:new Date().toISOString()}; DB.hallReports.unshift(r); logAction(`سجّل ${D.title} بتاريخ ${date} — ${order}`); }
+    hallSyncWaste(r);
+    await persist(); closeModal(); renderHallTab(dept); renderNav();
+    showToast('اتحفظ التقرير');
+    if(andPrint) printHallReport(r.id);
+  }
+  document.getElementById('saveOnlyBtn').addEventListener('click',()=>save(false));
+  document.getElementById('savePrintBtn').addEventListener('click',()=>save(true));
+}
+
+function hallReportHtml(r){
+  const D=HALL_DEPT[r.dept], isPack=r.dept==='packaging';
+  const total=hallTotal(r), wt=hallWasteTotal(r), pct=hallPct(r);
+  const f=n=>fmtNum(Math.round((Number(n)||0)*100)/100);
+  const maxW=Math.max(...(r.waste||[]).map(w=>Number(w.qty)||0),0.0001);
+  const prodTable = isPack ? `<table><thead><tr><th style="width:26px">#</th><th>الصنف</th><th>استلموا من التصنيع</th><th>عبّوا</th></tr></thead>
+      <tbody>${(r.products||[]).map((p,i)=>`<tr><td>${i+1}</td><td style="font-weight:700">${esc(p.name)}</td><td>${f(p.received)} كجم</td><td>${p.packed?`${f(p.packed)} ${esc(p.packedUnit||'')}`:'—'}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="2">الإجمالي</td><td>${f(total)} كجم</td><td>${(()=>{ const m={}; (r.products||[]).forEach(p=>{ if(p.packed) m[p.packedUnit||'']=(m[p.packedUnit||'']||0)+Number(p.packed); }); return Object.entries(m).map(([u,v])=>`${f(v)} ${esc(u)}`).join(' · ')||'—'; })()}</td></tr></tfoot></table>`
+    : `<table><thead><tr><th style="width:26px">#</th><th>الصنف</th><th>الكمية</th><th>% من الإنتاج</th></tr></thead>
+      <tbody>${(r.products||[]).map((p,i)=>`<tr><td>${i+1}</td><td style="font-weight:700">${esc(p.name)}</td><td>${f(p.qty)} كجم</td><td>${total>0?Math.round(p.qty/total*1000)/10+'%':'—'}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="2">الإجمالي</td><td>${f(total)} كجم</td><td>100%</td></tr></tfoot></table>`;
+  const wasteTable = (r.waste||[]).length ? `<table><thead><tr><th style="width:26px">#</th><th>نوع الهالك</th><th>الكمية</th><th>النسبة</th><th style="width:22%"></th></tr></thead>
+      <tbody>${r.waste.map((w,i)=>`<tr><td>${i+1}</td><td style="font-weight:700">${esc(w.type)}</td><td>${f(w.qty)} كجم</td><td>${total>0?Math.round(w.qty/total*1000)/10+'%':'—'}</td><td><div class="hr-bar"><i style="width:${Math.max(4,Math.round(w.qty/maxW*100))}%"></i></div></td></tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="2">إجمالي الهالك</td><td>${f(wt)} كجم</td><td>${pct===null?'—':pct+'%'}</td><td></td></tr></tfoot></table>`
+    : `<div class="hr-notes">مفيش هالك متسجل</div>`;
+  const kpis = isPack ? [
+      ['','إجمالي اللي استلموه',`${f(total)} <small>كجم</small>`],
+      ['g','الأصناف',`${(r.products||[]).length} <small>صنف</small>`],
+      ['r','إجمالي الهالك',`${f(wt)} <small>كجم</small>`],
+      ['l','نسبة الهالك', pct===null?'—':pct+'%'] ]
+    : [
+      ['','إجمالي الإنتاج',`${f(total)} <small>كجم</small>`],
+      ['g','عدد الحلل', r.batches?`${f(r.batches)} <small>حلة</small>`:'—'],
+      ['r','إجمالي الهالك',`${f(wt)} <small>كجم</small>`],
+      ['l','نسبة الهالك', pct===null?'—':pct+'%'] ];
+  let sec=0; const n=()=>++sec;
+  return `<div class="hr-page">
+    <div class="hr-top">
+      <div><div class="hr-title">${esc(D.title)}</div><div class="hr-sub">EgyGulf Foods — نظام إدارة المخازن والإنتاج</div></div>
+      <img src="${HALL_LOGO}" alt="EgyGulf Foods">
+    </div>
+    <div class="hr-band"></div>
+    <div class="hr-info">
+      <div><b>التاريخ</b><span>${esc(hallDayName(r.date))} ${fmtDateAr(r.date)}</span></div>
+      <div><b>الأوردر / الدولة</b><span>${esc(r.order||'—')}</span></div>
+      <div><b>رقم التقرير</b><span>${esc(hallNo(r))}</span></div>
+      <div><b>مسؤول الصالة</b><span>${esc(r.supervisor||r.by||'—')}</span></div>
+    </div>
+    <div class="hr-kpis">${kpis.map(k=>`<div class="hr-kpi ${k[0]}"><b>${k[1]}</b><span>${k[2]}</span></div>`).join('')}</div>
+    <div class="hr-sec"><h3><i>${n()}</i> ${isPack?'الأصناف: الاستلام والتعبئة':'الأصناف والكميات المنتجة'}</h3>${prodTable}</div>
+    ${!isPack && (r.flavors||[]).length ? `<div class="hr-sec"><h3><i>${n()}</i> الطعوم</h3><div class="hr-chips">${r.flavors.map(x=>`<span>${esc(x)}</span>`).join('')}</div></div>`:''}
+    <div class="hr-sec"><h3><i>${n()}</i> الهالك</h3>${wasteTable}</div>
+    <div class="hr-sec"><h3><i>${n()}</i> ملاحظات</h3><div class="hr-notes">${esc(r.notes||'')||'&nbsp;'}</div></div>
+    <div class="hr-sign">
+      <div><div class="ln">${esc(r.supervisor||'')}</div>مسؤول الصالة</div>
+      <div><div class="ln"></div>${isPack?'مشرف التعبئة':'مدير الإنتاج'}</div>
+      <div><div class="ln"></div>مدير المصنع</div>
+    </div>
+    <div class="hr-foot"><span>سجّله: ${esc(r.by||'—')}${r.editedBy?` · عدّله: ${esc(r.editedBy)}`:''}</span><span>اتطبع: ${new Date().toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'})} — بواسطة ${esc(userTag())}</span></div>
+  </div>`;
+}
+function printHallReport(id){
+  const r=(DB.hallReports||[]).find(x=>x.id===id); if(!r) return;
+  document.getElementById('printArea').innerHTML = hallReportHtml(r);
+  const img=document.querySelector('#printArea .hr-top img');
+  const go=()=>setTimeout(()=>window.print(),50);
+  if(img && !img.complete){ img.onload=go; img.onerror=go; } else go();
+}
+
 function renderContent(){
   tableState = { search:'', filter:'', sortKey:null, sortDir:'desc', fromDate:'', toDate:'' };
   selectedProdGroups.clear();
@@ -5724,6 +6062,7 @@ function renderContent(){
   else if(currentTab==='observerNotes') renderObserverNotesTab();
   else if(currentTab==='customerOrders') renderExternalOrdersTab();
   else if(currentTab==='auditLog') renderAuditLogTab();
+  else if(currentTab==='hallMan' || currentTab==='hallPack') renderHallTab(HALL_TAB_DEPT[currentTab]);
   else if(currentTab==='wasteMan' || currentTab==='wastePack') renderWasteTab(WASTE_TAB_WH[currentTab]);
   else renderGenericTab(currentTab);
 }
