@@ -685,7 +685,7 @@ input.trc-picked{border-color:var(--ok) !important;}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 27-10 — v27</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 29-10 — v28</span></div>
   </aside>
 
   <div class="main">
@@ -5839,7 +5839,7 @@ function renderHallTab(dept){
         <td><span class="pill pill-navy">${esc(r.order||'—')}</span></td>
         <td style="font-size:12.5px">${(r.products||[]).map(p=>esc(p.name)).join('<br>')}</td>
         <td class="num">${fmtNum(hallTotal(r))} <span class="unit-chip">كجم</span></td>
-        ${dept==='manufacturing'?`<td class="num">${r.batches?fmtNum(r.batches):'—'}</td>`:''}
+        ${dept==='manufacturing'?`<td class="num">${r.batches?fmtNum(r.batches):'—'}${r.glucose||r.sugar?`<div class="muted" style="font-size:11px;font-weight:500">${r.glucose?`جلوكوز ${fmtNum(r.glucose)}`:''}${r.glucose&&r.sugar?' · ':''}${r.sugar?`سكر ${fmtNum(r.sugar)}`:''} كجم</div>`:''}</td>`:''}
         <td class="num" style="color:var(--danger)">${fmtNum(hallWasteTotal(r))} <span class="unit-chip">كجم</span></td>
         <td>${pctPill(hallPct(r))}</td>
         <td><div class="btn-icon-row">
@@ -5893,7 +5893,12 @@ function openHallModal(dept, editId){
         <div class="hl-total" id="hlProdTotal"></div>
       </div>
       ${isPack?'':`<div class="hl-sec"><h4><span class="n">3</span> الحلل والطعوم</h4>
-        <div class="hl-row"><div class="field" style="width:160px;"><label>عدد الحلل</label><input type="number" step="1" min="0" id="hl_batches" placeholder="0" value="${rec&&rec.batches?esc(rec.batches):''}"></div></div>
+        <div class="hl-row">
+          <div class="field" style="width:150px;"><label>عدد الحلل</label><input type="number" step="1" min="0" id="hl_batches" placeholder="0" value="${rec&&rec.batches?esc(rec.batches):''}"></div>
+          <div class="field" style="width:170px;"><label>عسل جلوكوز المستخدم (كجم)</label><input type="number" step="0.01" min="0" id="hl_glucose" placeholder="0" value="${rec&&rec.glucose?esc(rec.glucose):''}"></div>
+          <div class="field" style="width:170px;"><label>السكر المستخدم (كجم)</label><input type="number" step="0.01" min="0" id="hl_sugar" placeholder="0" value="${rec&&rec.sugar?esc(rec.sugar):''}"></div>
+        </div>
+        <div class="muted" id="hlPerBatch" style="font-size:12px;margin:-2px 0 10px;"></div>
         <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;">الطعوم (دوس عليها)</label>
         <div class="hl-chips" id="hlFlavors">${flavorList.map(f=>`<button type="button" class="hl-chip ${flavors.has(f)?'on':''}" data-fl="${esc(f)}">${esc(f)}</button>`).join('')}</div>
         <div class="hl-row" style="margin-top:8px;"><div class="field" style="flex:1;max-width:260px;"><input type="text" id="hl_newFlavor" placeholder="طعم مش موجود؟ اكتبه واضغط Enter"></div></div>
@@ -5952,6 +5957,12 @@ function openHallModal(dept, editId){
   updTotals();
   document.getElementById('hlAddProd').addEventListener('click',()=>addProd());
   document.getElementById('hlAddWaste').addEventListener('click',()=>addWaste());
+  const pbEl=document.getElementById('hlPerBatch');
+  if(pbEl){
+    const updPB=()=>{ const b=num(document.getElementById('hl_batches').value), g=num(document.getElementById('hl_glucose').value), su=num(document.getElementById('hl_sugar').value);
+      pbEl.textContent = (b>0 && (g||su)) ? `متوسط الحلة الواحدة: ${g?fmtNum(Math.round(g/b*100)/100)+' كجم جلوكوز':''}${g&&su?' + ':''}${su?fmtNum(Math.round(su/b*100)/100)+' كجم سكر':''}` : ''; };
+    ['hl_batches','hl_glucose','hl_sugar'].forEach(id=>document.getElementById(id).addEventListener('input',updPB)); updPB();
+  }
   const flWrap=document.getElementById('hlFlavors');
   if(flWrap){
     flWrap.addEventListener('click',e=>{ const c=e.target.closest('.hl-chip'); if(c) c.classList.toggle('on'); });
@@ -5975,7 +5986,7 @@ function openHallModal(dept, editId){
     const waste=[...wasteWrap.querySelectorAll('.hl-waste')].map(r=>({type:r.querySelector('.hw_type').value.trim(), qty:num(r.querySelector('.hw_qty').value), unit:'كجم'})).filter(w=>w.type && w.qty>0);
     if([...wasteWrap.querySelectorAll('.hl-waste')].some(r=>!r.querySelector('.hw_type').value.trim() && num(r.querySelector('.hw_qty').value)>0)){ showToast('فيه هالك من غير نوع'); return; }
     const data={dept, date, order, supervisor:document.getElementById('hl_sup').value.trim(), products, waste, notes:document.getElementById('hl_notes').value.trim()};
-    if(!isPack){ data.batches=num(document.getElementById('hl_batches').value); data.flavors=[...document.querySelectorAll('#hlFlavors .hl-chip.on')].map(c=>c.dataset.fl); }
+    if(!isPack){ data.batches=num(document.getElementById('hl_batches').value); data.glucose=num(document.getElementById('hl_glucose').value); data.sugar=num(document.getElementById('hl_sugar').value); data.flavors=[...document.querySelectorAll('#hlFlavors .hl-chip.on')].map(c=>c.dataset.fl); }
     DB.hallReports = DB.hallReports || [];
     let r;
     if(rec){ r=rec; Object.assign(r, data, {editedBy:userTag(), editedAt:new Date().toISOString()}); logAction(`عدّل ${D.title} بتاريخ ${date}`); }
@@ -6029,6 +6040,12 @@ function hallReportHtml(r){
     </div>
     <div class="hr-kpis">${kpis.map(k=>`<div class="hr-kpi ${k[0]}"><b>${k[1]}</b><span>${k[2]}</span></div>`).join('')}</div>
     <div class="hr-sec"><h3><i>${n()}</i> ${isPack?'الأصناف: الاستلام والتعبئة':'الأصناف والكميات المنتجة'}</h3>${prodTable}</div>
+    ${!isPack && (r.batches || r.glucose || r.sugar) ? `<div class="hr-sec"><h3><i>${n()}</i> الحلل والخامات المستخدمة</h3>
+      <table><thead><tr><th>البيان</th><th>الإجمالي</th><th>متوسط الحلة الواحدة</th></tr></thead><tbody>
+        <tr><td style="font-weight:700">عدد الحلل</td><td>${r.batches?f(r.batches)+' حلة':'—'}</td><td>—</td></tr>
+        <tr><td style="font-weight:700">عسل جلوكوز</td><td>${r.glucose?f(r.glucose)+' كجم':'—'}</td><td>${r.glucose&&r.batches?f(r.glucose/r.batches)+' كجم':'—'}</td></tr>
+        <tr><td style="font-weight:700">سكر</td><td>${r.sugar?f(r.sugar)+' كجم':'—'}</td><td>${r.sugar&&r.batches?f(r.sugar/r.batches)+' كجم':'—'}</td></tr>
+      </tbody></table></div>`:''}
     ${!isPack && (r.flavors||[]).length ? `<div class="hr-sec"><h3><i>${n()}</i> الطعوم</h3><div class="hr-chips">${r.flavors.map(x=>`<span>${esc(x)}</span>`).join('')}</div></div>`:''}
     <div class="hr-sec"><h3><i>${n()}</i> الهالك</h3>${wasteTable}</div>
     <div class="hr-sec"><h3><i>${n()}</i> ملاحظات</h3><div class="hr-notes">${esc(r.notes||'')||'&nbsp;'}</div></div>
