@@ -685,7 +685,7 @@ input.trc-picked{border-color:var(--ok) !important;}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 29-10 — v28</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 29-10 — v29</span></div>
   </aside>
 
   <div class="main">
@@ -5788,9 +5788,18 @@ const HALL_FLAVORS = ['مانجو','كولا','فراولة','تفاح','تفا�
 let hlFrom = '', hlTo = '';
 function hallReportsOf(dept){ return (DB.hallReports||[]).filter(r=>r.dept===dept); }
 function canEditHall(dept){ return !isViewer() && (isAllWhUser() || myWarehouse()===dept); }
-function hallTotal(r){ return Math.round((r.products||[]).reduce((t,p)=>t+(Number(r.dept==='packaging'?p.received:p.qty)||0),0)*100)/100; }
-function hallWasteTotal(r){ return Math.round((r.waste||[]).reduce((t,w)=>t+(Number(w.qty)||0),0)*100)/100; }
-function hallPct(r){ const t=hallTotal(r); return t>0 ? Math.round(hallWasteTotal(r)/t*1000)/10 : null; }
+/* التعبئة: الوحدة بيكتبها المستخدم (استلموا / عبّوا / الهالك) — النسبة بتتحسب على الوحدة الأساسية بس (أكبر كمية استلموها) */
+const HALL_UNIT_SUGGEST = ['كجم','طن','جرام','كرتونة','كيس','شكارة','برطمان','علبة','قطعة','رشاقة','شجرة','عربية','رول','دستة'];
+function hu(u){ return String(u||'').trim() || 'كجم'; }
+function hallRecUnit(p){ return hu(p.recUnit); }
+function hallUnitGroups(rows){ const m={}; rows.forEach(([q,u])=>{ q=Number(q)||0; if(!q) return; u=hu(u); m[u]=Math.round(((m[u]||0)+q)*100)/100; }); return m; }
+function hallGroupStr(m){ const e=Object.entries(m); return e.length ? e.map(([u,v])=>`${fmtNum(v)} ${u}`).join(' · ') : '0'; }
+function hallRecGroups(r){ return r.dept==='packaging' ? hallUnitGroups((r.products||[]).map(p=>[p.received, hallRecUnit(p)])) : hallUnitGroups((r.products||[]).map(p=>[p.qty,'كجم'])); }
+function hallWasteGroups(r){ return hallUnitGroups((r.waste||[]).map(w=>[w.qty, w.unit])); }
+function hallMainUnit(r){ const g=hallRecGroups(r); const e=Object.entries(g).sort((a,b)=>b[1]-a[1]); return e.length? e[0][0] : 'كجم'; }
+function hallTotal(r){ return hallRecGroups(r)[hallMainUnit(r)] || 0; }
+function hallWasteTotal(r){ return hallWasteGroups(r)[hallMainUnit(r)] || 0; }
+function hallPct(r){ const t=hallTotal(r); return (t>0 && (r.waste||[]).length) ? Math.round(hallWasteTotal(r)/t*1000)/10 : (t>0?0:null); }
 function hallNo(r){ return `${HALL_DEPT[r.dept].code}-${String(r.date||'').replace(/-/g,'')}-${String(r.id).slice(-3).toUpperCase()}`; }
 function hallOrderOptions(){ return [...new Set([...(typeof FINISHED_COUNTRIES!=='undefined'?FINISHED_COUNTRIES:[]), ...getAllOrderNames(), ...(DB.hallReports||[]).map(r=>r.order).filter(Boolean)])]; }
 function hallRoster(dept){ DB.settings.hallWorkers = DB.settings.hallWorkers || {}; return DB.settings.hallWorkers[dept] = DB.settings.hallWorkers[dept] || []; }
@@ -5799,10 +5808,10 @@ function hallDayName(d){ try{ return new Date(d+'T12:00:00').toLocaleDateString(
 /* الهالك بتاع التقرير بيتسجل في DB.waste (تابة هالك القسم) — بيتمسح ويتعمل تاني مع كل تعديل */
 function hallSyncWaste(r){
   DB.waste = (DB.waste||[]).filter(w=>w.hallRef!==r.id);
-  const lbl = whLabel(r.dept), total = hallTotal(r);
+  const lbl = whLabel(r.dept), total = hallTotal(r), mu = hallMainUnit(r);
   (r.waste||[]).forEach(w=>{
     if(!(Number(w.qty)>0)) return;
-    DB.waste.unshift({id:uid(), hallRef:r.id, date:r.date, warehouse:lbl, item:w.type, taken: total>0?total:'', qty:Number(w.qty), unit:w.unit||'كجم', deducted:false, by:r.by||userTag(), createdAt:new Date().toISOString()});
+    DB.waste.unshift({id:uid(), hallRef:r.id, date:r.date, warehouse:lbl, item:w.type, taken: (total>0 && hu(w.unit)===mu)?total:'', qty:Number(w.qty), unit:hu(w.unit), deducted:false, by:r.by||userTag(), createdAt:new Date().toISOString()});
   });
 }
 
@@ -5812,14 +5821,16 @@ function renderHallTab(dept){
   const list = hallReportsOf(dept).filter(r=>(!hlFrom||r.date>=hlFrom)&&(!hlTo||r.date<=hlTo))
     .sort((a,b)=>(b.date||'').localeCompare(a.date||'') || String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
   const [m0a,m0b]=trMonthRange(0), [m1a,m1b]=trMonthRange(-1);
-  const sumT = list.reduce((t,r)=>t+hallTotal(r),0), sumW = list.reduce((t,r)=>t+hallWasteTotal(r),0);
-  const pctAll = sumT>0 ? Math.round(sumW/sumT*1000)/10 : null;
+  const mergeG = gs=>{ const m={}; gs.forEach(g=>Object.entries(g).forEach(([u,v])=>{ m[u]=Math.round(((m[u]||0)+v)*100)/100; })); return m; };
+  const allRec = mergeG(list.map(hallRecGroups)), allW = mergeG(list.map(hallWasteGroups));
+  const mainAll = (Object.entries(allRec).sort((a,b)=>b[1]-a[1])[0]||['كجم'])[0];
+  const pctAll = allRec[mainAll]>0 ? Math.round((allW[mainAll]||0)/allRec[mainAll]*1000)/10 : null;
   const pctPill = p=> p===null?'<span class="muted">—</span>':`<span class="pill ${p>10?'pill-danger':(p>5?'pill-warn':'pill-ok')}">${p}%</span>`;
   const html = `
   <div class="cards-grid" style="margin-bottom:14px;">
     <div class="stat-card"><div class="icon-wrap">${svgIcon('history')}</div><div class="label">عدد التقارير</div><div class="value">${list.length}</div></div>
-    <div class="stat-card"><div class="icon-wrap gold">${svgIcon('box')}</div><div class="label">${dept==='packaging'?'إجمالي اللي استلموه':'إجمالي الإنتاج'}</div><div class="value">${fmtNum(Math.round(sumT*100)/100)} <span style="font-size:14px">كجم</span></div></div>
-    <div class="stat-card"><div class="icon-wrap danger">${svgIcon('waste')}</div><div class="label">إجمالي الهالك</div><div class="value">${fmtNum(Math.round(sumW*100)/100)} <span style="font-size:14px">كجم</span></div><div class="foot">نسبة الهالك: ${pctAll===null?'—':pctAll+'%'}</div></div>
+    <div class="stat-card"><div class="icon-wrap gold">${svgIcon('box')}</div><div class="label">${dept==='packaging'?'إجمالي اللي استلموه':'إجمالي الإنتاج'}</div><div class="value" style="font-size:19px">${hallGroupStr(allRec)}</div></div>
+    <div class="stat-card"><div class="icon-wrap danger">${svgIcon('waste')}</div><div class="label">إجمالي الهالك</div><div class="value" style="font-size:19px">${hallGroupStr(allW)}</div><div class="foot">نسبة الهالك: ${pctAll===null?'—':pctAll+'%'}</div></div>
   </div>
   <div class="panel">
     <div class="panel-head"><h2>${esc(D.title)} <span class="muted" style="font-weight:600;font-size:12.5px">(${list.length})</span></h2>
@@ -5838,9 +5849,9 @@ function renderHallTab(dept){
         <td><div style="font-weight:800">${fmtDateAr(r.date)}</div><div class="muted" style="font-size:11px">${esc(hallDayName(r.date))} · ${esc(hallNo(r))}</div></td>
         <td><span class="pill pill-navy">${esc(r.order||'—')}</span></td>
         <td style="font-size:12.5px">${(r.products||[]).map(p=>esc(p.name)).join('<br>')}</td>
-        <td class="num">${fmtNum(hallTotal(r))} <span class="unit-chip">كجم</span></td>
+        <td class="num">${hallGroupStr(hallRecGroups(r))}</td>
         ${dept==='manufacturing'?`<td class="num">${r.batches?fmtNum(r.batches):'—'}${r.glucose||r.sugar?`<div class="muted" style="font-size:11px;font-weight:500">${r.glucose?`جلوكوز ${fmtNum(r.glucose)}`:''}${r.glucose&&r.sugar?' · ':''}${r.sugar?`سكر ${fmtNum(r.sugar)}`:''} كجم</div>`:''}</td>`:''}
-        <td class="num" style="color:var(--danger)">${fmtNum(hallWasteTotal(r))} <span class="unit-chip">كجم</span></td>
+        <td class="num" style="color:var(--danger)">${(r.waste||[]).length?hallGroupStr(hallWasteGroups(r)):'0'}</td>
         <td>${pctPill(hallPct(r))}</td>
         <td><div class="btn-icon-row">
           <button class="btn btn-sm btn-primary" data-hlprint="${r.id}">${svgIcon('print','sm')} طباعة</button>
@@ -5879,6 +5890,7 @@ function openHallModal(dept, editId){
     <div class="modal-body">
       <datalist id="hlOrders">${hallOrderOptions().map(o=>`<option value="${esc(o)}">`).join('')}</datalist>
       <datalist id="hlProducts">${[...new Set([...(whArray(dept)||[]).map(i=>i.name), ...(DB.hallReports||[]).flatMap(r=>(r.products||[]).map(p=>p.name))])].map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+      <datalist id="hlUnits">${HALL_UNIT_SUGGEST.map(u=>`<option value="${u}">`).join('')}</datalist>
       <datalist id="hlWasteTypes">${D.wasteTypes.map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
       <div class="hl-sec"><h4><span class="n">1</span> البيانات الأساسية</h4>
         <div class="hl-row">
@@ -5922,18 +5934,20 @@ function openHallModal(dept, editId){
   const num = v=>{ const n=Number(v); return Number.isNaN(n)?0:n; };
   const prodWrap=document.getElementById('hlProds'), wasteWrap=document.getElementById('hlWaste');
   function updTotals(){
-    const t=[...prodWrap.querySelectorAll('.hl-prod')].reduce((a,r)=>a+num(r.querySelector(isPack?'.hp_rec':'.hp_qty').value),0);
-    const w=[...wasteWrap.querySelectorAll('.hl-waste')].reduce((a,r)=>a+num(r.querySelector('.hw_qty').value),0);
-    document.getElementById('hlProdTotal').textContent = `الإجمالي: ${fmtNum(Math.round(t*100)/100)} كجم`;
-    document.getElementById('hlWasteTotal').textContent = `إجمالي الهالك: ${fmtNum(Math.round(w*100)/100)} كجم${t>0?` — نسبة الهالك ${Math.round(w/t*1000)/10}%`:''}`;
+    const fake = {dept, products:[...prodWrap.querySelectorAll('.hl-prod')].map(r=> isPack ? {received:num(r.querySelector('.hp_rec').value), recUnit:r.querySelector('.hp_recUnit').value} : {qty:num(r.querySelector('.hp_qty').value)}),
+      waste:[...wasteWrap.querySelectorAll('.hl-waste')].map(r=>({qty:num(r.querySelector('.hw_qty').value), unit: isPack ? r.querySelector('.hw_unit').value : 'كجم'})).filter(w=>w.qty>0)};
+    const p = hallPct(fake);
+    document.getElementById('hlProdTotal').textContent = `الإجمالي: ${hallGroupStr(hallRecGroups(fake))}`;
+    document.getElementById('hlWasteTotal').textContent = `إجمالي الهالك: ${hallGroupStr(hallWasteGroups(fake))}${p!==null&&fake.waste.length?` — نسبة الهالك ${p}%${isPack?` (محسوبة على الـ${hallMainUnit(fake)})`:''}`:''}`;
   }
   function addProd(v){
     v=v||{}; const d=document.createElement('div'); d.className='hl-row hl-prod'; const first=!prodWrap.children.length;
     d.innerHTML = isPack ? `
       <div class="field" style="flex:2;min-width:180px;"><label>${first?'الصنف':''}</label><input type="text" class="hp_name" list="hlProducts" placeholder="مثال: مصاصة لايت 14جم" value="${esc(v.name||'')}"></div>
-      <div class="field" style="flex:1;min-width:100px;"><label>${first?'استلموا (كجم)':''}</label><input type="number" step="0.01" class="hp_rec" placeholder="0" value="${v.received??''}"></div>
-      <div class="field" style="flex:1;min-width:90px;"><label>${first?'عبّوا':''}</label><input type="number" step="0.01" class="hp_packed" placeholder="0" value="${v.packed??''}"></div>
-      <div class="field" style="flex:1;min-width:105px;"><label>${first?'وحدة التعبئة':''}</label>${unitSelectHtml(null, v.packedUnit||'كرتونة', 'hp_unit')}</div>
+      <div class="field" style="flex:.9;min-width:85px;"><label>${first?'استلموا':''}</label><input type="number" step="0.01" class="hp_rec" placeholder="0" value="${v.received??''}"></div>
+      <div class="field" style="flex:.9;min-width:90px;"><label>${first?'الوحدة':''}</label><input type="text" class="hp_recUnit" list="hlUnits" placeholder="كجم" value="${esc(v.received!==undefined?hallRecUnit(v):'كجم')}"></div>
+      <div class="field" style="flex:.9;min-width:85px;"><label>${first?'عبّوا':''}</label><input type="number" step="0.01" class="hp_packed" placeholder="0" value="${v.packed??''}"></div>
+      <div class="field" style="flex:.9;min-width:90px;"><label>${first?'الوحدة':''}</label><input type="text" class="hp_unit" list="hlUnits" placeholder="كرتونة" value="${esc(v.packedUnit||'كرتونة')}"></div>
       <button type="button" class="icon-btn danger" title="حذف">${svgIcon('trash','sm')}</button>` : `
       <div class="field" style="flex:2.2;min-width:200px;"><label>${first?'الصنف':''}</label><input type="text" class="hp_name" list="hlProducts" placeholder="مثال: مصاصة توتي لولي 18جم" value="${esc(v.name||'')}"></div>
       <div class="field" style="flex:1;min-width:110px;"><label>${first?'الكمية (كجم)':''}</label><input type="number" step="0.01" class="hp_qty" placeholder="0" value="${v.qty??''}"></div>
@@ -5946,7 +5960,8 @@ function openHallModal(dept, editId){
     v=v||{}; const d=document.createElement('div'); d.className='hl-row hl-waste'; const first=!wasteWrap.children.length;
     d.innerHTML = `
       <div class="field" style="flex:2.2;min-width:200px;"><label>${first?'نوع الهالك':''}</label><input type="text" class="hw_type" list="hlWasteTypes" placeholder="اختار أو اكتب" value="${esc(v.type||'')}"></div>
-      <div class="field" style="flex:1;min-width:110px;"><label>${first?'الكمية (كجم)':''}</label><input type="number" step="0.01" class="hw_qty" placeholder="0" value="${v.qty??''}"></div>
+      <div class="field" style="flex:1;min-width:110px;"><label>${first?(isPack?'الكمية':'الكمية (كجم)'):''}</label><input type="number" step="0.01" class="hw_qty" placeholder="0" value="${v.qty??''}"></div>
+      ${isPack?`<div class="field" style="flex:.9;min-width:90px;"><label>${first?'الوحدة':''}</label><input type="text" class="hw_unit" list="hlUnits" placeholder="كجم" value="${esc(hu(v.unit))}"></div>`:''}
       <button type="button" class="icon-btn danger" title="حذف">${svgIcon('trash','sm')}</button>`;
     wasteWrap.appendChild(d);
     d.querySelector('button').onclick=()=>{ d.remove(); updTotals(); };
@@ -5976,14 +5991,15 @@ function openHallModal(dept, editId){
     if(!date){ showToast('اختار التاريخ'); return; }
     if(!order){ showToast('اكتب الأوردر / الدولة'); return; }
     const products=[...prodWrap.querySelectorAll('.hl-prod')].map(r=> isPack ? {
-      name:r.querySelector('.hp_name').value.trim(), received:num(r.querySelector('.hp_rec').value), packed:num(r.querySelector('.hp_packed').value), packedUnit:r.querySelector('.hp_unit').value
+      name:r.querySelector('.hp_name').value.trim(), received:num(r.querySelector('.hp_rec').value), recUnit:hu(r.querySelector('.hp_recUnit').value), packed:num(r.querySelector('.hp_packed').value), packedUnit:r.querySelector('.hp_unit').value.trim()
     } : { name:r.querySelector('.hp_name').value.trim(), qty:num(r.querySelector('.hp_qty').value) }).filter(p=>p.name|| (isPack?p.received:p.qty));
     if(!products.length){ showToast('اكتب صنف واحد على الأقل'); return; }
     for(const p of products){
       if(!p.name){ showToast('فيه صف أصناف من غير اسم'); return; }
       if(!((isPack?p.received:p.qty)>0)){ showToast(`اكتب ${isPack?'الكمية اللي استلموها':'الكمية'} لـ "${p.name}"`); return; }
+      if(isPack && p.packed>0 && !p.packedUnit){ showToast(`اكتب وحدة التعبئة لـ "${p.name}" (كرتونة / كيس / علبة...)`); return; }
     }
-    const waste=[...wasteWrap.querySelectorAll('.hl-waste')].map(r=>({type:r.querySelector('.hw_type').value.trim(), qty:num(r.querySelector('.hw_qty').value), unit:'كجم'})).filter(w=>w.type && w.qty>0);
+    const waste=[...wasteWrap.querySelectorAll('.hl-waste')].map(r=>({type:r.querySelector('.hw_type').value.trim(), qty:num(r.querySelector('.hw_qty').value), unit: isPack ? hu(r.querySelector('.hw_unit').value) : 'كجم'})).filter(w=>w.type && w.qty>0);
     if([...wasteWrap.querySelectorAll('.hl-waste')].some(r=>!r.querySelector('.hw_type').value.trim() && num(r.querySelector('.hw_qty').value)>0)){ showToast('فيه هالك من غير نوع'); return; }
     const data={dept, date, order, supervisor:document.getElementById('hl_sup').value.trim(), products, waste, notes:document.getElementById('hl_notes').value.trim()};
     if(!isPack){ data.batches=num(document.getElementById('hl_batches').value); data.glucose=num(document.getElementById('hl_glucose').value); data.sugar=num(document.getElementById('hl_sugar').value); data.flavors=[...document.querySelectorAll('#hlFlavors .hl-chip.on')].map(c=>c.dataset.fl); }
@@ -6002,23 +6018,23 @@ function openHallModal(dept, editId){
 
 function hallReportHtml(r){
   const D=HALL_DEPT[r.dept], isPack=r.dept==='packaging';
-  const total=hallTotal(r), wt=hallWasteTotal(r), pct=hallPct(r);
+  const total=hallTotal(r), wt=hallWasteTotal(r), pct=hallPct(r), mu=hallMainUnit(r);
   const f=n=>fmtNum(Math.round((Number(n)||0)*100)/100);
   const maxW=Math.max(...(r.waste||[]).map(w=>Number(w.qty)||0),0.0001);
   const prodTable = isPack ? `<table><thead><tr><th style="width:26px">#</th><th>الصنف</th><th>استلموا من التصنيع</th><th>عبّوا</th></tr></thead>
-      <tbody>${(r.products||[]).map((p,i)=>`<tr><td>${i+1}</td><td style="font-weight:700">${esc(p.name)}</td><td>${f(p.received)} كجم</td><td>${p.packed?`${f(p.packed)} ${esc(p.packedUnit||'')}`:'—'}</td></tr>`).join('')}</tbody>
-      <tfoot><tr><td colspan="2">الإجمالي</td><td>${f(total)} كجم</td><td>${(()=>{ const m={}; (r.products||[]).forEach(p=>{ if(p.packed) m[p.packedUnit||'']=(m[p.packedUnit||'']||0)+Number(p.packed); }); return Object.entries(m).map(([u,v])=>`${f(v)} ${esc(u)}`).join(' · ')||'—'; })()}</td></tr></tfoot></table>`
+      <tbody>${(r.products||[]).map((p,i)=>`<tr><td>${i+1}</td><td style="font-weight:700">${esc(p.name)}</td><td>${f(p.received)} ${esc(hallRecUnit(p))}</td><td>${p.packed?`${f(p.packed)} ${esc(p.packedUnit||'')}`:'—'}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="2">الإجمالي</td><td>${esc(hallGroupStr(hallRecGroups(r)))}</td><td>${(()=>{ const m={}; (r.products||[]).forEach(p=>{ if(p.packed) m[p.packedUnit||'']=(m[p.packedUnit||'']||0)+Number(p.packed); }); return Object.entries(m).map(([u,v])=>`${f(v)} ${esc(u)}`).join(' · ')||'—'; })()}</td></tr></tfoot></table>`
     : `<table><thead><tr><th style="width:26px">#</th><th>الصنف</th><th>الكمية</th><th>% من الإنتاج</th></tr></thead>
       <tbody>${(r.products||[]).map((p,i)=>`<tr><td>${i+1}</td><td style="font-weight:700">${esc(p.name)}</td><td>${f(p.qty)} كجم</td><td>${total>0?Math.round(p.qty/total*1000)/10+'%':'—'}</td></tr>`).join('')}</tbody>
       <tfoot><tr><td colspan="2">الإجمالي</td><td>${f(total)} كجم</td><td>100%</td></tr></tfoot></table>`;
   const wasteTable = (r.waste||[]).length ? `<table><thead><tr><th style="width:26px">#</th><th>نوع الهالك</th><th>الكمية</th><th>النسبة</th><th style="width:22%"></th></tr></thead>
-      <tbody>${r.waste.map((w,i)=>`<tr><td>${i+1}</td><td style="font-weight:700">${esc(w.type)}</td><td>${f(w.qty)} كجم</td><td>${total>0?Math.round(w.qty/total*1000)/10+'%':'—'}</td><td><div class="hr-bar"><i style="width:${Math.max(4,Math.round(w.qty/maxW*100))}%"></i></div></td></tr>`).join('')}</tbody>
-      <tfoot><tr><td colspan="2">إجمالي الهالك</td><td>${f(wt)} كجم</td><td>${pct===null?'—':pct+'%'}</td><td></td></tr></tfoot></table>`
+      <tbody>${r.waste.map((w,i)=>`<tr><td>${i+1}</td><td style="font-weight:700">${esc(w.type)}</td><td>${f(w.qty)} ${esc(hu(w.unit))}</td><td>${total>0&&hu(w.unit)===mu?Math.round(w.qty/total*1000)/10+'%':'—'}</td><td><div class="hr-bar"><i style="width:${Math.max(4,Math.round(w.qty/maxW*100))}%"></i></div></td></tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="2">إجمالي الهالك</td><td>${esc(hallGroupStr(hallWasteGroups(r)))}</td><td>${pct===null?'—':pct+'%'}</td><td></td></tr></tfoot></table>`
     : `<div class="hr-notes">مفيش هالك متسجل</div>`;
   const kpis = isPack ? [
-      ['','إجمالي اللي استلموه',`${f(total)} <small>كجم</small>`],
+      ['','إجمالي اللي استلموه',`${f(total)} <small>${esc(mu)}</small>`],
       ['g','الأصناف',`${(r.products||[]).length} <small>صنف</small>`],
-      ['r','إجمالي الهالك',`${f(wt)} <small>كجم</small>`],
+      ['r','إجمالي الهالك', (r.waste||[]).length ? Object.entries(hallWasteGroups(r)).map(([u,v])=>`${f(v)} <small>${esc(u)}</small>`).join('<small> · </small>') : '0'],
       ['l','نسبة الهالك', pct===null?'—':pct+'%'] ]
     : [
       ['','إجمالي الإنتاج',`${f(total)} <small>كجم</small>`],
