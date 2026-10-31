@@ -722,7 +722,7 @@ input.trc-picked{border-color:var(--ok) !important;}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 31-10 — v36</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 31-10 — v37</span></div>
   </aside>
 
   <div class="main">
@@ -6564,8 +6564,8 @@ function renderStockMovesTab(){
           <td style="font-weight:700">${esc(m.itemName)}${m.notes?`<div class="muted" style="font-size:11px;font-weight:500">${esc(m.notes)}</div>`:''}</td>
           <td class="num" style="color:${mvIsOut(m)?'var(--danger)':'var(--ok)'};font-weight:800">${mvIsOut(m)?'−':'+'}${fmtNum(m.qty)} <span class="unit-chip">${esc(m.unit||'')}</span></td>
           <td class="num">${it?`${fmtNum(it.balance)} ${esc(unitShow(it.unit))}`:'<span class="muted">الصنف اتمسح</span>'}</td>
-          <td style="font-size:12px">${esc(m.by||'')}</td>
-          <td>${can?`<button class="icon-btn danger" data-mvdel="${m.id}" title="امسح (الرصيد بيرجع زي ما كان)">${svgIcon('trash','sm')}</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`
+          <td style="font-size:12px">${esc(m.by||'')}${m.editedBy?`<div style="color:var(--warn);font-size:11px">عدّله: ${esc(m.editedBy)} (${fmtDateTimeAr(m.editedAt)})</div>`:''}</td>
+          <td><div class="btn-icon-row">${can?`<button class="icon-btn" data-mvedit="${m.id}" title="تعديل">${svgIcon('edit','sm')}</button><button class="icon-btn danger" data-mvdel="${m.id}" title="امسح (الرصيد بيرجع زي ما كان)">${svgIcon('trash','sm')}</button>`:''}</div></td></tr>`; }).join('')}</tbody></table></div>`
       :`<div class="empty-state">${svgIcon('download')}<div>${all.length?'مفيش حركة بالبحث/الفترة دي':'لسه مفيش وارد متسجل — دوس "+ تسجيل وارد"'}</div></div>`}</div>
   </div>`;
   document.getElementById('content').innerHTML=`<div class="content-fade">${html}</div>`;
@@ -6577,6 +6577,7 @@ function renderStockMovesTab(){
   sIn.addEventListener('input',()=>{ mvSearch=sIn.value; clearTimeout(sIn._t); sIn._t=setTimeout(()=>{ rr(); const n=document.getElementById('mvSearch'); n.focus(); n.setSelectionRange(n.value.length,n.value.length); },250); });
   const a=document.getElementById('mvAdd'); if(a) a.addEventListener('click',()=>openStockMoveModal('in'));
   const o=document.getElementById('mvOut'); if(o) o.addEventListener('click',()=>openStockMoveModal('out'));
+  document.querySelectorAll('[data-mvedit]').forEach(b=>b.addEventListener('click',()=>openStockMoveEdit(b.dataset.mvedit)));
   document.querySelectorAll('[data-mvkind]').forEach(b=>b.addEventListener('click',()=>{ mvKind=b.dataset.mvkind; rr(); }));
   document.querySelectorAll('[data-mvdel]').forEach(b=>b.addEventListener('click',async ()=>{
     const m=(DB.stockMoves||[]).find(x=>x.id===b.dataset.mvdel); if(!m) return;
@@ -6592,6 +6593,58 @@ function renderStockMovesTab(){
     const rows=list.map(m=>({'النوع':mvIsOut(m)?'صرف':'وارد','التاريخ':m.arrivalDate,'دخل السيستم':fmtDateTimeAr(m.createdAt),'المورد / صرف لـ':m.supplier||'','الصنف':m.itemName,'الكمية':Number(m.qty)||0,'الوحدة':m.unit||'','ملاحظات':m.notes||'','سجّله':m.by||''}));
     const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'حركة المخازن');
     XLSX.writeFile(wb,`حركة المخازن${mvFrom?' من '+mvFrom:''}${mvTo?' لحد '+mvTo:''}.xlsx`);
+  });
+}
+function openStockMoveEdit(id){
+  const m=(DB.stockMoves||[]).find(x=>x.id===id); if(!m||!canEditMoves()) return;
+  const out=mvIsOut(m);
+  document.getElementById('modalRoot').innerHTML=`
+  <div class="modal-overlay" id="overlay"><div class="modal" style="max-width:640px;">
+    <div class="modal-head"><h3>تعديل ${out?'صرف':'وارد'} — حركة المخازن</h3><button class="modal-close" id="closeX">✕</button></div>
+    <div class="modal-body">
+      <div class="hl-row">
+        <div class="field" style="flex:1.6;min-width:180px;"><label>${out?'صرف لـ *':'اسم المورد *'}</label><input type="text" id="mve_sup" value="${esc(m.supplier||'')}"></div>
+        <div class="field" style="flex:1;min-width:150px;"><label>${out?'تاريخ الصرف *':'تاريخ الوصول *'}</label><input type="date" id="mve_date" value="${esc(m.arrivalDate||'')}" max="${todayISO()}"></div>
+      </div>
+      <div class="mv-row" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="field" style="flex:2.2;margin:0;min-width:200px;"><label>الصنف *</label>${trItemFieldHtml('raw','mv_item',{fromItemId:m.itemId, fromItemName:m.itemName})}</div>
+        <div class="field" style="flex:1;margin:0;min-width:100px;"><label>الكمية *</label><input type="number" step="0.01" min="0" class="mv_qty" value="${esc(m.qty)}"></div>
+        <div class="field" style="flex:1;margin:0;min-width:110px;"><label>الوحدة</label>${unitSelectHtml(null,m.unit,'mv_unit')}</div>
+        <div class="muted mv_hint" style="font-size:11px;flex-basis:100%;"></div>
+      </div>
+      <div class="field" style="margin-top:10px;"><label>ملاحظات</label><input type="text" id="mve_notes" value="${esc(m.notes||'')}"></div>
+      <div class="muted" style="font-size:12px;">دخل السيستم: ${fmtDateTimeAr(m.createdAt)} — الرصيد بيتظبط لوحده على القيم الجديدة.</div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button><button class="btn btn-primary" id="saveBtn">حفظ التعديل</button></div>
+  </div></div>`;
+  const ov=document.getElementById('overlay'); ov.addEventListener('click',e=>{ if(e.target===ov) closeModal(); });
+  document.getElementById('closeX').addEventListener('click',closeModal); document.getElementById('cancelBtn').addEventListener('click',closeModal);
+  const row=document.querySelector('.modal .mv-row');
+  const upd=()=>{ const r=trRowRead('raw', row, '.mv_item', '.mv_unit'); row.querySelector('.mv_hint').textContent = r.it ? `الرصيد دلوقتي: ${fmtNum(r.it.balance)} ${unitShow(r.it.unit)}` : (r.name?'اختار الصنف من القائمة':''); };
+  ['input','change'].forEach(ev=>row.querySelector('.mv_item').addEventListener(ev,upd)); row.querySelector('.mv_unit').addEventListener('change',upd); upd();
+  document.getElementById('saveBtn').addEventListener('click',async ()=>{
+    const sup=document.getElementById('mve_sup').value.trim(), date=document.getElementById('mve_date').value, notes=document.getElementById('mve_notes').value.trim();
+    const r=trRowRead('raw', row, '.mv_item', '.mv_unit'); const qty=Number(row.querySelector('.mv_qty').value);
+    const unit=(r.it&&unitIsClear(r.it.unit))?r.it.unit:r.unit;
+    if(!sup){ showToast(out?'اكتب صرف لمين':'اكتب اسم المورد'); return; }
+    if(!date){ showToast('اختار التاريخ'); return; }
+    if(!r.it){ showToast('اختار الصنف من القائمة'); return; }
+    if(!(qty>0)){ showToast('اكتب الكمية'); return; }
+    if(!unit){ showToast('اختار الوحدة'); return; }
+    const sign=out?-1:1;
+    const oldIt=(DB.raw||[]).find(i=>i.id===m.itemId);
+    // الرصيد المتاح بعد إلغاء الحركة القديمة
+    const availNew = Number(r.it.balance) + (oldIt && oldIt.id===r.it.id ? -sign*Number(m.qty) : 0);
+    if(out && qty>availNew){ showToast(`الكمية أكبر من الرصيد (${fmtNum(availNew)})`); return; }
+    if(oldIt){ oldIt.balance=Math.round((Number(oldIt.balance)-sign*Number(m.qty))*100)/100; oldIt.history=(oldIt.history||[]).filter(h=>h.refId!=='mv_'+m.id); }
+    if(!unitIsClear(r.it.unit)) r.it.unit=unit;
+    r.it.balance=Math.round((Number(r.it.balance)+sign*qty)*100)/100;
+    r.it.history=r.it.history||[];
+    r.it.history.push({date, ts:m.createdAt, type:out?'صرف':'اضافه', qty, notes:`${out?'صرف لـ':'وارد من'} ${sup} (حركة المخازن — معدّل)${notes?' — '+notes:''}`, refId:'mv_'+m.id, by:userTag()});
+    const before=`${fmtNum(m.qty)} ${m.unit} ${m.itemName} — ${m.supplier} — ${m.arrivalDate}`;
+    Object.assign(m,{supplier:sup, arrivalDate:date, itemId:r.it.id, itemName:r.it.name, qty, unit, notes, editedBy:userTag(), editedAt:new Date().toISOString()});
+    logAction(`عدّل ${out?'صرف':'وارد'} في حركة المخازن: كان (${before}) بقى (${fmtNum(qty)} ${unit} ${r.it.name} — ${sup} — ${date})`);
+    await persist(); closeModal(); renderStockMovesTab(); showToast('اتحفظ التعديل والرصيد اتظبط');
   });
 }
 function openStockMoveModal(kind){
