@@ -722,7 +722,7 @@ input.trc-picked{border-color:var(--ok) !important;}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 31-10 — v33</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 31-10 — v34</span></div>
   </aside>
 
   <div class="main">
@@ -796,7 +796,7 @@ let currentUser = null; // {role:'admin'|'warehouse'}
 const WAREHOUSE_TABS = ['raw','whManufacturing','purchaseRequests','purchases','transfers','shortageReports','whReport','lowStock']; // أمين مخزن الخامات
 const ROLE_TABS = { // كل مخزن ليه أمين لوحده
   whman:  ['whManufacturing','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','hallMan','wasteMan'],
-  whpack: ['whPackaging','raw','transfers','purchaseRequests','shortageReports','whReport','lowStock','hallPack','wastePack'],
+  whpack: ['whPackaging','raw','transfers','purchaseRequests','whReport','lowStock','hallPack'], // من غير تقارير العجز وهالك التعبئة (بيشوفهم الأدمن بس)
   whfin:  ['whFinished','transfers','shortageReports','whReport','lowStock'],
 };
 // تابات بيشوفها الدور من غير ما يعدّل فيها (لا إضافة ولا صرف ولا تعديل ولا حذف)
