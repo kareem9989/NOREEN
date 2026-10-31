@@ -722,7 +722,7 @@ input.trc-picked{border-color:var(--ok) !important;}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 31-10 — v35</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 31-10 — v36</span></div>
   </aside>
 
   <div class="main">
@@ -1458,7 +1458,7 @@ const TITLES = {
   shortageReports:['تقارير العجز','أمين المخزن بيكتب العجز وسببه، والأدمن بيراجعه ويعتمده'],
   purchaseRequests:['طلبات مشتريات','اطلب خامة محتاجينها والأدمن يوافق عليها قبل الشراء'],
   purchases:['المشتريات','تسجيل مشتريات الخامات الواردة من الموردين'],
-  stockMoves:['حركة المخازن','الوارد لمخزن الخامات: المورد، الصنف، الكمية، تاريخ الوصول وتاريخ التسجيل — وبيزود الرصيد على طول'],
+  stockMoves:['حركة المخازن','الوارد والمنصرف من مخزن الخامات: المورد أو الجهة، الصنف، الكمية، التاريخ وتاريخ التسجيل — وبيعدّل الرصيد على طول'],
   raw:['مخزن الخامات','كل حاجة بتدخل المصنع: خامات، رولات، كراتين، وأي فئة تانية — مقسّمة فئات فرعية'],
   whManufacturing:['مخزن التصنيع','أرصدة الأصناف نصف المصنّعة داخل مرحلة التصنيع'],
   whPackaging:['مخزن التعبئة والتغليف','أرصدة الأصناف بعد مرحلة التعبئة والتغليف'],
@@ -6517,13 +6517,16 @@ function openFinOrderLog(id){
 /* ================= حركة المخازن (الوارد لمخزن الخامات) =================
    المورد + الصنف (من أصناف مخزن الخامات) + الكمية والوحدة + تاريخ الوصول، وتاريخ التسجيل بيتحط لوحده.
    الكمية بتزود رصيد الصنف في مخزن الخامات على طول، والمسح بيرجّعها. */
-let mvFrom='', mvTo='', mvSearch='';
+let mvFrom='', mvTo='', mvSearch='', mvKind='all';
+function mvIsOut(m){ return m.kind==='out'; }
 function canEditMoves(){ return !isViewer() && (isAdmin || (currentUser && currentUser.role==='warehouse')); }
 function renderStockMovesTab(){
   const can=canEditMoves();
   const q=trNorm(mvSearch);
   const all=DB.stockMoves||[];
-  const list=all.filter(m=>(!mvFrom||m.arrivalDate>=mvFrom)&&(!mvTo||m.arrivalDate<=mvTo)&&(!q||trNorm(`${m.itemName} ${m.supplier} ${m.notes||''}`).includes(q)))
+  const base=all.filter(m=>(!mvFrom||m.arrivalDate>=mvFrom)&&(!mvTo||m.arrivalDate<=mvTo)&&(!q||trNorm(`${m.itemName} ${m.supplier} ${m.notes||''}`).includes(q)));
+  const nIn=base.filter(m=>!mvIsOut(m)).length, nOut=base.filter(mvIsOut).length;
+  const list=base.filter(m=>mvKind==='all'||(mvKind==='out')===mvIsOut(m))
     .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
   const [m0a,m0b]=trMonthRange(0), [m1a,m1b]=trMonthRange(-1);
   const rawHits = q ? trWhItems('raw').filter(it=>trNorm(`${it.name} ${it.variant||''} ${it.supplier||''}`).includes(q)).slice(0,12) : [];
@@ -6533,10 +6536,15 @@ function renderStockMovesTab(){
       <div class="toolbar">
         <input class="search-box" id="mvSearch" placeholder="بحث باسم الصنف أو المورد..." value="${esc(mvSearch)}">
         <button class="btn btn-ghost" id="mvExport">${svgIcon('download','sm')} تصدير Excel</button>
-        ${can?`<button class="btn btn-gold" id="mvAdd">+ تسجيل وارد</button>`:''}
+        ${can?`<button class="btn btn-ghost" id="mvOut" style="border-color:var(--danger);color:var(--danger)">− تسجيل صرف</button><button class="btn btn-gold" id="mvAdd">+ تسجيل وارد</button>`:''}
       </div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 10px;">
+      <button class="btn btn-sm ${mvKind==='all'?'btn-primary':'btn-ghost'}" data-mvkind="all">الكل (${nIn+nOut})</button>
+      <button class="btn btn-sm ${mvKind==='in'?'btn-primary':'btn-ghost'}" data-mvkind="in">⬇ الوارد (${nIn})</button>
+      <button class="btn btn-sm ${mvKind==='out'?'btn-primary':'btn-ghost'}" data-mvkind="out">⬆ المنصرف (${nOut})</button>
+    </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px;padding:0 18px 12px;">
-      <span class="muted">تاريخ الوصول:</span>
+      <span class="muted">التاريخ:</span>
       <button class="btn btn-sm ${mvFrom===m0a&&mvTo===m0b?'btn-primary':'btn-ghost'}" data-mvrange="0">الشهر ده</button>
       <button class="btn btn-sm ${mvFrom===m1a&&mvTo===m1b?'btn-primary':'btn-ghost'}" data-mvrange="-1">الشهر اللي فات</button>
       <button class="btn btn-sm ${!mvFrom&&!mvTo?'btn-primary':'btn-ghost'}" data-mvrange="all">كل الفترات</button>
@@ -6548,16 +6556,16 @@ function renderStockMovesTab(){
       ${rawHits.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">${rawHits.map(it=>`<span class="pill pill-navy" style="font-size:12px">${esc(it.name)}${it.variant?' — '+esc(it.variant):''}: <b>${fmtNum(it.balance)} ${esc(unitShow(it.unit))}</b></span>`).join('')}</div>`:' <span class="muted">مفيش صنف بالاسم ده في مخزن الخامات</span>'}
     </div>`:''}
     <div class="panel-body">${list.length?`<div class="table-wrap"><table>
-      <thead><tr><th>تاريخ الوصول</th><th>دخل السيستم</th><th>المورد</th><th>الصنف</th><th>الكمية</th><th>رصيده دلوقتي</th><th>سجّله</th><th></th></tr></thead>
+      <thead><tr><th>النوع</th><th>التاريخ</th><th>دخل السيستم</th><th>المورد / صرف لـ</th><th>الصنف</th><th>الكمية</th><th>رصيده دلوقتي</th><th>سجّله</th><th></th></tr></thead>
       <tbody>${list.map(m=>{ const it=(DB.raw||[]).find(i=>i.id===m.itemId);
-        return `<tr><td style="font-weight:800">${fmtDateAr(m.arrivalDate)}</td>
+        return `<tr><td>${mvIsOut(m)?'<span class="pill pill-danger">⬆ صرف</span>':'<span class="pill pill-ok">⬇ وارد</span>'}</td><td style="font-weight:800">${fmtDateAr(m.arrivalDate)}</td>
           <td style="font-size:12px">${fmtDateTimeAr(m.createdAt)}</td>
           <td>${esc(m.supplier||'—')}</td>
           <td style="font-weight:700">${esc(m.itemName)}${m.notes?`<div class="muted" style="font-size:11px;font-weight:500">${esc(m.notes)}</div>`:''}</td>
-          <td class="num">${fmtNum(m.qty)} <span class="unit-chip">${esc(m.unit||'')}</span></td>
+          <td class="num" style="color:${mvIsOut(m)?'var(--danger)':'var(--ok)'};font-weight:800">${mvIsOut(m)?'−':'+'}${fmtNum(m.qty)} <span class="unit-chip">${esc(m.unit||'')}</span></td>
           <td class="num">${it?`${fmtNum(it.balance)} ${esc(unitShow(it.unit))}`:'<span class="muted">الصنف اتمسح</span>'}</td>
           <td style="font-size:12px">${esc(m.by||'')}</td>
-          <td>${can?`<button class="icon-btn danger" data-mvdel="${m.id}" title="امسح (الكمية هتتشال من الرصيد)">${svgIcon('trash','sm')}</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`
+          <td>${can?`<button class="icon-btn danger" data-mvdel="${m.id}" title="امسح (الرصيد بيرجع زي ما كان)">${svgIcon('trash','sm')}</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`
       :`<div class="empty-state">${svgIcon('download')}<div>${all.length?'مفيش حركة بالبحث/الفترة دي':'لسه مفيش وارد متسجل — دوس "+ تسجيل وارد"'}</div></div>`}</div>
   </div>`;
   document.getElementById('content').innerHTML=`<div class="content-fade">${html}</div>`;
@@ -6567,43 +6575,46 @@ function renderStockMovesTab(){
   fD.addEventListener('change',()=>{mvFrom=fD.value;rr();}); tD.addEventListener('change',()=>{mvTo=tD.value;rr();});
   const sIn=document.getElementById('mvSearch');
   sIn.addEventListener('input',()=>{ mvSearch=sIn.value; clearTimeout(sIn._t); sIn._t=setTimeout(()=>{ rr(); const n=document.getElementById('mvSearch'); n.focus(); n.setSelectionRange(n.value.length,n.value.length); },250); });
-  const a=document.getElementById('mvAdd'); if(a) a.addEventListener('click',openStockMoveModal);
+  const a=document.getElementById('mvAdd'); if(a) a.addEventListener('click',()=>openStockMoveModal('in'));
+  const o=document.getElementById('mvOut'); if(o) o.addEventListener('click',()=>openStockMoveModal('out'));
+  document.querySelectorAll('[data-mvkind]').forEach(b=>b.addEventListener('click',()=>{ mvKind=b.dataset.mvkind; rr(); }));
   document.querySelectorAll('[data-mvdel]').forEach(b=>b.addEventListener('click',async ()=>{
     const m=(DB.stockMoves||[]).find(x=>x.id===b.dataset.mvdel); if(!m) return;
-    if(!confirm(`تمسح وارد ${fmtNum(m.qty)} ${m.unit||''} "${m.itemName}"؟ الكمية هتتشال من رصيد مخزن الخامات.`)) return;
+    if(!confirm(mvIsOut(m)?`تمسح صرف ${fmtNum(m.qty)} ${m.unit||''} "${m.itemName}"؟ الكمية هترجع لرصيد مخزن الخامات.`:`تمسح وارد ${fmtNum(m.qty)} ${m.unit||''} "${m.itemName}"؟ الكمية هتتشال من رصيد مخزن الخامات.`)) return;
     const it=(DB.raw||[]).find(i=>i.id===m.itemId);
-    if(it){ it.balance=Math.round((Number(it.balance)-Number(m.qty))*100)/100; it.history=(it.history||[]).filter(h=>h.refId!=='mv_'+m.id); }
+    if(it){ it.balance=Math.round((Number(it.balance)+(mvIsOut(m)?1:-1)*Number(m.qty))*100)/100; it.history=(it.history||[]).filter(h=>h.refId!=='mv_'+m.id); }
     DB.stockMoves=DB.stockMoves.filter(x=>x.id!==m.id);
-    logAction(`مسح وارد ${fmtNum(m.qty)} "${m.itemName}" من ${m.supplier||'—'} (حركة المخازن)`);
+    logAction(`مسح ${mvIsOut(m)?'صرف':'وارد'} ${fmtNum(m.qty)} "${m.itemName}" ${mvIsOut(m)?'لـ':'من'} ${m.supplier||'—'} (حركة المخازن)`);
     await persist(); rr(); renderNav(); showToast('اتمسح ورجع الرصيد زي ما كان');
   }));
   document.getElementById('mvExport').addEventListener('click',()=>{
     if(!window.XLSX){ showToast('مكتبة Excel مش متاحة'); return; }
-    const rows=list.map(m=>({'تاريخ الوصول':m.arrivalDate,'دخل السيستم':fmtDateTimeAr(m.createdAt),'المورد':m.supplier||'','الصنف':m.itemName,'الكمية':Number(m.qty)||0,'الوحدة':m.unit||'','ملاحظات':m.notes||'','سجّله':m.by||''}));
+    const rows=list.map(m=>({'النوع':mvIsOut(m)?'صرف':'وارد','التاريخ':m.arrivalDate,'دخل السيستم':fmtDateTimeAr(m.createdAt),'المورد / صرف لـ':m.supplier||'','الصنف':m.itemName,'الكمية':Number(m.qty)||0,'الوحدة':m.unit||'','ملاحظات':m.notes||'','سجّله':m.by||''}));
     const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'حركة المخازن');
     XLSX.writeFile(wb,`حركة المخازن${mvFrom?' من '+mvFrom:''}${mvTo?' لحد '+mvTo:''}.xlsx`);
   });
 }
-function openStockMoveModal(){
+function openStockMoveModal(kind){
   if(!canEditMoves()) return;
+  const out = kind==='out';
   const sups=[...new Set([...(DB.suppliers||[]).map(x=>x.name), ...(DB.raw||[]).map(i=>i.supplier), ...(DB.stockMoves||[]).map(m=>m.supplier)].map(x=>String(x||'').trim()).filter(Boolean))];
   document.getElementById('modalRoot').innerHTML=`
   <div class="modal-overlay" id="overlay"><div class="modal" style="max-width:720px;">
-    <div class="modal-head"><h3>تسجيل وارد — حركة المخازن</h3><button class="modal-close" id="closeX">✕</button></div>
+    <div class="modal-head"><h3>${out?'تسجيل صرف':'تسجيل وارد'} — حركة المخازن</h3><button class="modal-close" id="closeX">✕</button></div>
     <div class="modal-body">
-      <datalist id="mvSups">${sups.map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
+      <datalist id="mvSups">${(out?[...new Set(['مخزن التصنيع','مخزن التعبئة والتغليف','صيانة','عينات','بيع','مرتجع للمورد',...(DB.stockMoves||[]).filter(mvIsOut).map(m=>m.supplier)])]:sups).map(x=>`<option value="${esc(x)}">`).join('')}</datalist>
       <div class="hl-row">
-        <div class="field" style="flex:1.6;min-width:180px;"><label>اسم المورد *</label><input type="text" id="mv_sup" list="mvSups" placeholder="اكتب أو اختار المورد"></div>
-        <div class="field" style="flex:1;min-width:150px;"><label>تاريخ الوصول *</label><input type="date" id="mv_date" value="${todayISO()}" max="${todayISO()}"></div>
+        <div class="field" style="flex:1.6;min-width:180px;"><label>${out?'صرف لـ (الجهة / الشخص) *':'اسم المورد *'}</label><input type="text" id="mv_sup" list="mvSups" placeholder="${out?'مثال: صيانة / عينات / اسم الشخص':'اكتب أو اختار المورد'}"></div>
+        <div class="field" style="flex:1;min-width:150px;"><label>${out?'تاريخ الصرف *':'تاريخ الوصول *'}</label><input type="date" id="mv_date" value="${todayISO()}" max="${todayISO()}"></div>
         <div class="field" style="flex:1;min-width:150px;"><label>دخل السيستم</label><input type="text" value="${esc(fmtDateTimeAr(new Date().toISOString()))} (بيتسجل لوحده)" disabled></div>
       </div>
       <div class="field"><label>الأصناف * <span class="muted" style="font-weight:500">(اكتب اسم الصنف واختاره من مخزن الخامات)</span></label>
         <div id="mvRows" style="display:flex;flex-direction:column;gap:8px;"></div>
         <button type="button" class="btn btn-ghost btn-sm" id="mvAddRow" style="margin-top:8px;">+ صنف تاني</button></div>
       <div class="field"><label>ملاحظات</label><input type="text" id="mv_notes" placeholder="مثال: رقم الفاتورة / اسم السواق"></div>
-      <div class="muted" style="font-size:12px;">الكمية بتتضاف لرصيد الصنف في مخزن الخامات أول ما تحفظ.</div>
+      <div class="muted" style="font-size:12px;">${out?'الكمية بتتخصم من رصيد الصنف في مخزن الخامات أول ما تحفظ. (التحويل لمخزن التصنيع أو التعبئة الأحسن يتعمل بإذن صرف عشان المخزن التاني يستلمه)':'الكمية بتتضاف لرصيد الصنف في مخزن الخامات أول ما تحفظ.'}</div>
     </div>
-    <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button><button class="btn btn-primary" id="saveBtn">حفظ وإضافة للرصيد</button></div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button><button class="btn btn-primary" id="saveBtn">${out?'حفظ وخصم من الرصيد':'حفظ وإضافة للرصيد'}</button></div>
   </div></div>`;
   const ov=document.getElementById('overlay'); ov.addEventListener('click',e=>{ if(e.target===ov) closeModal(); });
   document.getElementById('closeX').addEventListener('click',closeModal); document.getElementById('cancelBtn').addEventListener('click',closeModal);
@@ -6627,8 +6638,8 @@ function openStockMoveModal(){
   document.getElementById('mvAddRow').addEventListener('click',addRow);
   document.getElementById('saveBtn').addEventListener('click',async ()=>{
     const sup=document.getElementById('mv_sup').value.trim(), date=document.getElementById('mv_date').value, notes=document.getElementById('mv_notes').value.trim();
-    if(!sup){ showToast('اكتب اسم المورد'); return; }
-    if(!date){ showToast('اختار تاريخ الوصول'); return; }
+    if(!sup){ showToast(out?'اكتب صرف لمين':'اكتب اسم المورد'); return; }
+    if(!date){ showToast(out?'اختار تاريخ الصرف':'اختار تاريخ الوصول'); return; }
     const rows=[...wrap.querySelectorAll('.mv-row')].map(d=>{ const r=trRowRead('raw', d, '.mv_item', '.mv_unit'); return {it:r.it, name:r.name, unit:(r.it&&unitIsClear(r.it.unit))?r.it.unit:r.unit, qty:Number(d.querySelector('.mv_qty').value)}; }).filter(r=>r.name||r.qty);
     if(!rows.length){ showToast('اختار صنف واكتب كميته'); return; }
     for(const r of rows){
@@ -6636,19 +6647,21 @@ function openStockMoveModal(){
       if(!(r.qty>0)){ showToast(`اكتب الكمية لـ "${r.it.name}"`); return; }
       if(!r.unit){ showToast(`اختار الوحدة لـ "${r.it.name}"`); return; }
     }
+    if(out){ const tot={}; rows.forEach(r=>{ tot[r.it.id]=(tot[r.it.id]||0)+r.qty; });
+      for(const id in tot){ const it=DB.raw.find(i=>i.id===id); if(tot[id]>Number(it.balance)){ showToast(`كمية "${it.name}" أكبر من الرصيد (${fmtNum(it.balance)})`); return; } } }
     const now=new Date().toISOString();
     DB.stockMoves=DB.stockMoves||[];
     rows.forEach(r=>{
       const id=uid();
       if(!unitIsClear(r.it.unit)) r.it.unit=r.unit;
-      r.it.balance=Math.round(((Number(r.it.balance)||0)+r.qty)*100)/100;
+      r.it.balance=Math.round(((Number(r.it.balance)||0)+(out?-1:1)*r.qty)*100)/100;
       r.it.history=r.it.history||[];
-      r.it.history.push({date, ts:now, type:'اضافه', qty:r.qty, notes:`وارد من ${sup} (حركة المخازن)${notes?' — '+notes:''}`, refId:'mv_'+id, by:userTag()});
-      DB.stockMoves.unshift({id, supplier:sup, itemId:r.it.id, itemName:r.it.name, qty:r.qty, unit:r.unit, arrivalDate:date, createdAt:now, notes, by:userTag()});
+      r.it.history.push({date, ts:now, type:out?'صرف':'اضافه', qty:r.qty, notes:`${out?'صرف لـ':'وارد من'} ${sup} (حركة المخازن)${notes?' — '+notes:''}`, refId:'mv_'+id, by:userTag()});
+      DB.stockMoves.unshift({id, kind:out?'out':'in', supplier:sup, itemId:r.it.id, itemName:r.it.name, qty:r.qty, unit:r.unit, arrivalDate:date, createdAt:now, notes, by:userTag()});
     });
-    logAction(`سجّل وارد من ${sup} (وصل ${date}): ${rows.map(r=>`${fmtNum(r.qty)} ${r.unit} ${r.it.name}`).join('، ')}`);
+    logAction(`${out?`سجّل صرف لـ ${sup}`:`سجّل وارد من ${sup}`} (${date}): ${rows.map(r=>`${fmtNum(r.qty)} ${r.unit} ${r.it.name}`).join('، ')}`);
     await persist(); closeModal(); renderStockMovesTab(); renderNav();
-    showToast('اتسجل الوارد واتضاف للرصيد');
+    showToast(out?'اتسجل الصرف واتخصم من الرصيد':'اتسجل الوارد واتضاف للرصيد');
   });
 }
 
