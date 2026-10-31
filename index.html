@@ -702,7 +702,7 @@ input.trc-picked{border-color:var(--ok) !important;}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 31-10 — v30</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 31-10 — v31</span></div>
   </aside>
 
   <div class="main">
@@ -1112,6 +1112,12 @@ function applyDBDefaultsAndMigrations(){
         });
         DB.settings.wasteManResetV1 = true;
       }
+      // الأوردرات اتنقلت جوه جدول الإنتاج التام: "المطلوب" بقى على الصنف نفسه
+      (DB.finOrders||[]).forEach(o=>{ (o.items||[]).forEach(it=>{
+        const w=(DB.whFinished||[]).find(x=>x.name.trim()===String(it.name).trim() && String(x.unit||'').trim()===String(it.unit||'').trim() && (x.country||'').trim()===o.name);
+        if(w && !(Number(w.target)>0)) w.target=it.target;
+        else if(!w) (DB.whFinished=DB.whFinished||[]).push({id:uid(), name:it.name, unit:it.unit||'', country:o.name, balance:0, target:it.target, history:[]});
+      }); delete o.items; delete o.log; });
       if(!DB.transfers) DB.transfers = [];
       if(!DB.dispatches) DB.dispatches = [];
       if(!DB.importedOrders) DB.importedOrders = [];
@@ -1900,11 +1906,13 @@ const CONFIGS = {
       {key:'name', label:'اسم الصنف', type:'text', required:true},
       {key:'balance', label:'الرصيد الحالي', type:'number', required:true, step:'0.01'},
       {key:'unit', label:'الوحدة (الرصيد ده إيه؟)', type:'unit', required:true},
+      {key:'target', label:'المطلوب للأوردر (الكمية اللي المفروض تتعمل — اختياري)', type:'number', required:false, step:'0.01'},
     ],
     columns:[
       {key:'country', label:'الأوردر / الدولة'},
       {key:'name', label:'الصنف'},
       {key:'balance', label:'الرصيد الحالي (والوحدة)'},
+      {key:'foProgress', label:'المطلوب / اتعمل / باقي'},
       {key:'adjust', label:'صرف / إضافة يدوي'},
     ],
     searchKeys:['name','country'],
@@ -2162,12 +2170,12 @@ function renderGenericTab(tabId){
     const card = (val,label,arr)=>{
       const on = tableState.filter===val;
       return `<button class="btn btn-sm ${on?'btn-primary':'btn-ghost'}" data-country="${esc(val)}" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 14px;min-width:120px;">
-        <span style="font-weight:800">${esc(label)}</span>
+        <span style="font-weight:800">${val && val!=='__NONE__' && finOrderClosed(val)?'🔒 ':''}${esc(label)}</span>
         <span style="font-size:11.5px;opacity:.85">${arr.length} صنف · رصيد ${fmtNum(sum(arr))}</span>
       </button>`;
     };
     const noCountry = all.filter(i=>!(i.country||'').trim());
-    subTabHtml = finOrdersPanelHtml() + `<div class="fin-country-tabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+ subTabHtml = `<div class="fin-country-tabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
       ${card('','كل الأوردرات',all)}
       ${names.map(c=>card(c,c,all.filter(i=>(i.country||'').trim()===c))).join('')}
       ${noCountry.length ? card('__NONE__','بدون أوردر',noCountry) : ''}
@@ -2218,6 +2226,7 @@ function renderGenericTab(tabId){
         ${tabId==='production' ? `<span id="exportScopeHint"></span>` : ''}
         <button class="btn btn-ghost" id="exportBtn">${svgIcon('download','sm')} تصدير Excel</button>
         ${tabId==='production' ? `<button class="btn btn-ghost" id="printBtn">${svgIcon('print','sm')} طباعة PDF</button>` : ''}
+        ${tabId==='whFinished' ? (()=>{ const nc=(DB.finOrders||[]).filter(o=>o.status==='closed').length; return `${nc?`<button class="btn btn-ghost" id="foToggle">${foShowClosed?'خبّي المقفولة':`🔒 المقفولة (${nc})`}</button>`:''}${canEditFinOrders()?`<button class="btn btn-ghost" id="foNew">+ أوردر جديد</button>`:''}`; })() : ''}
         ${isReadOnlyTab(tabId) ? `<span class="pill pill-navy">عرض فقط</span>` : `<button class="btn btn-gold" id="addBtn">+ ${addLabel}</button>`}
       </div>
     </div>
@@ -2255,7 +2264,8 @@ function renderGenericTab(tabId){
     document.getElementById('printBtn').addEventListener('click', printProductionReport);
   }
   if(tabId==='whFinished'){
-    wireFinOrdersPanel();
+    const nb=document.getElementById('foNew'); if(nb) nb.addEventListener('click',()=>openNewFinOrder());
+    const tb=document.getElementById('foToggle'); if(tb) tb.addEventListener('click',()=>{ foShowClosed=!foShowClosed; renderGenericTab('whFinished'); });
     document.querySelectorAll('.fin-country-tabs [data-country]').forEach(btn=>{
       btn.addEventListener('click', ()=>{ tableState.filter = btn.dataset.country; renderGenericTab(tabId); });
     });
@@ -2388,6 +2398,7 @@ function renderTableRows(tabId){
   if(tabId==='whFinished'){
     const rank = c=>{ const i=finOrderNames().indexOf(c); return i<0 ? (c?900:999) : i; };
     const cOf = i=>(i.country||'').trim();
+    list = list.filter(i=>{ const c=cOf(i); return !c || !finOrderClosed(c) || foShowClosed || tableState.filter===c; });
     list = list.map((it,idx)=>({it,idx})).sort((a,b)=> rank(cOf(a.it))-rank(cOf(b.it)) || cOf(a.it).localeCompare(cOf(b.it),'ar') || a.idx-b.idx).map(x=>x.it);
     const totals = {};
     list.forEach(i=>{ const c=cOf(i); totals[c]=totals[c]||{n:0,sum:0}; totals[c].n++; totals[c].sum+=Number(i.balance)||0; });
@@ -2397,8 +2408,19 @@ function renderTableRows(tabId){
       if(c===last) return '';
       last = c;
       const tt = totals[c];
-      return `<tr class="fin-group-row"><td colspan="${columns.length+1}" style="background:var(--navy,#1F4E78);color:#fff;font-weight:800;font-size:14px;padding:10px 14px;">
-        📦 أوردر: ${c?esc(c):'بدون أوردر'} <span style="font-weight:600;font-size:12px;opacity:.9;margin-inline-start:10px;">${tt.n} صنف · إجمالي ${fmtNum(Math.round(tt.sum*100)/100)}</span>
+      const closedO = c && finOrderClosed(c);
+      const pct = c ? finOrderPct(c) : null;
+      const canO = c && canEditFinOrders();
+      return `<tr class="fin-group-row"><td colspan="${columns.length+1}" style="background:${closedO?'#6B698F':'var(--navy,#1F4E78)'};color:#fff;font-weight:800;font-size:14px;padding:10px 14px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span>${closedO?'🔒':'📦'} أوردر: ${c?esc(c):'بدون أوردر'}</span>
+          <span style="font-weight:600;font-size:12px;opacity:.9;">${tt.n} صنف · إجمالي ${fmtNum(Math.round(tt.sum*100)/100)}</span>
+          ${pct!==null?`<span style="display:flex;align-items:center;gap:6px;font-size:12px;"><span style="width:120px;height:8px;border-radius:5px;background:rgba(255,255,255,.25);overflow:hidden;display:inline-block;"><i style="display:block;height:100%;width:${Math.min(100,pct)}%;background:${pct>=100?'#1FA97C':'#FEB913'};"></i></span>${pct}% من الأوردر اتعمل</span>`:''}
+          <span style="margin-inline-start:auto;display:flex;gap:6px;">
+            ${closedO?`<span class="pill pill-ok">مقفول ✓</span>${canO?`<button class="btn btn-sm btn-ghost" style="background:#fff" data-foreopen="${esc(c)}">افتحه تاني</button>`:''}`
+              :(canO?`<button class="btn btn-sm btn-ghost" style="background:#fff" data-foclose="${esc(c)}">🔒 اقفل الأوردر</button>`:'')}
+          </span>
+        </div>
       </td></tr>`;
     };
   }
@@ -2406,6 +2428,15 @@ function renderTableRows(tabId){
   let rowsHtml = list.map(item=>{
     const groupHead = finGroupOf ? finGroupOf(item) : '';
     let cells = columns.map(col=>{
+      if(col.key==='foProgress'){
+        const t = Number(item.target)||0;
+        if(!(t>0)) return `<td class="muted" style="font-size:12px">—</td>`;
+        const d = finItemDone(item), rem = Math.max(0, Math.round((t-d)*100)/100), p = Math.round(d/t*1000)/10;
+        return `<td style="min-width:190px"><div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:4px;">
+            <span>المطلوب <b>${fmtNum(t)}</b> · اتعمل <b>${fmtNum(d)}</b> · باقي <b style="color:${rem?'var(--danger)':'var(--ok)'}">${fmtNum(rem)}</b></span>
+            <b class="fo-pct ${p>=100?'done':''}">${p}%</b></div>
+          <div class="fo-bar"><i class="${p>=100?'done':''}" style="width:${Math.min(100,p)}%"></i></div></td>`;
+      }
       if(col.key==='adjust'){
         if(isReadOnlyTab(tabId)) return `<td class="muted">—</td>`;
         return `<td>
@@ -2465,6 +2496,7 @@ function renderTableRows(tabId){
   </table></div>`;
 
   holder.querySelectorAll('[data-act="wa"]').forEach(b=>b.addEventListener('click', ()=>shareWasteReport(b.dataset.id)));
+  if(tabId==='whFinished') wireFinOrderButtons(holder);
   holder.querySelectorAll('[data-act="history"]').forEach(b=>b.addEventListener('click', ()=>{
     const item = DB[tabId].find(i=>i.id===b.dataset.id);
     openHistoryDrawer(tabId, item);
@@ -6106,6 +6138,57 @@ function printHallReport(id){
    أوردر جديد باسم + المطلوب من كل صنف. كل يوم بيتزود اللي اتعمل (وبيدخل رصيد المخزن تحت الأوردر ده)
    وجنب كل صنف نسبة اللي اتعمل لحد 100%. الأوردر بيتقفل لما المستخدم يدوس "اقفل الأوردر". */
 let foShowClosed = false;
+/* الأوردر جوه جدول المخزن: "المطلوب" على الصنف، و"اتعمل" = الرصيد + اللي اتصرف منه (يعني كل اللي دخل) */
+function finOrderRec(name){ return (DB.finOrders||[]).find(o=>o.name===name); }
+function finOrderClosed(name){ const o=finOrderRec(name); return !!(o && o.status==='closed'); }
+function finItemDone(it){ const out=(it.history||[]).filter(h=>h.type==='صرف').reduce((t,h)=>t+(Number(h.qty)||0),0); return Math.round(((Number(it.balance)||0)+out)*100)/100; }
+function finOrderPct(name){
+  const items=(DB.whFinished||[]).filter(i=>(i.country||'').trim()===name && Number(i.target)>0);
+  if(!items.length) return null;
+  return Math.round(items.reduce((a,i)=>a+Math.min(100,finItemDone(i)/Number(i.target)*100),0)/items.length*10)/10;
+}
+function wireFinOrderButtons(root){
+  const rr=()=>renderGenericTab('whFinished');
+  root.querySelectorAll('[data-foclose]').forEach(b=>b.addEventListener('click',async ()=>{
+    const name=b.dataset.foclose; const p=finOrderPct(name);
+    if(!confirm(`قفل أوردر "${name}"؟${p!==null&&p<100?`\nالأوردر لسه ${p}% بس — هيتقفل كده.`:''}`)) return;
+    DB.finOrders=DB.finOrders||[];
+    let o=finOrderRec(name); if(!o){ o={id:uid(), name, by:userTag(), createdAt:new Date().toISOString()}; DB.finOrders.push(o); }
+    o.status='closed'; o.closedAt=new Date().toISOString(); o.closedBy=userTag();
+    logAction(`قفل أوردر "${name}"${p!==null?` (${p}%)`:''}`);
+    await persist(); if(tableState.filter===name) tableState.filter=''; rr(); showToast(`اتقفل أوردر "${name}" — هتلاقيه في "المقفولة"`);
+  }));
+  root.querySelectorAll('[data-foreopen]').forEach(b=>b.addEventListener('click',async ()=>{
+    const o=finOrderRec(b.dataset.foreopen); if(!o) return;
+    o.status='open'; delete o.closedAt; delete o.closedBy;
+    logAction(`فتح أوردر "${o.name}" تاني`);
+    await persist(); rr(); showToast('الأوردر اتفتح تاني');
+  }));
+}
+function openNewFinOrder(){
+  if(!canEditFinOrders()) return;
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" id="overlay"><div class="modal" style="max-width:480px;">
+    <div class="modal-head"><h3>أوردر جديد</h3><button class="modal-close" id="closeX">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>اسم الأوردر *</label><input type="text" id="fo_name" placeholder="مثال: السعودية — نوفمبر"></div>
+      <div class="muted" style="font-size:12px;">بعد ما تعمله، ضيف أصنافه بزرار "+ إضافة صنف جديد" واختار الأوردر ده، واكتب "المطلوب" لكل صنف.</div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button><button class="btn btn-primary" id="saveBtn">إنشاء الأوردر وإضافة أول صنف</button></div>
+  </div></div>`;
+  const ov=document.getElementById('overlay'); ov.addEventListener('click',e=>{ if(e.target===ov) closeModal(); });
+  document.getElementById('closeX').addEventListener('click',closeModal); document.getElementById('cancelBtn').addEventListener('click',closeModal);
+  document.getElementById('saveBtn').addEventListener('click',async ()=>{
+    const name=document.getElementById('fo_name').value.trim();
+    if(!name){ showToast('اكتب اسم الأوردر'); return; }
+    if(finOrderNames().includes(name)){ showToast('فيه أوردر بنفس الاسم'); return; }
+    DB.finOrders=DB.finOrders||[];
+    DB.finOrders.unshift({id:uid(), name, status:'open', by:userTag(), createdAt:new Date().toISOString()});
+    logAction(`عمل أوردر جديد "${name}" في مخزن الإنتاج التام`);
+    await persist(); closeModal(); tableState.filter=name; renderGenericTab('whFinished'); renderNav();
+    openItemModal('whFinished', null, {country:name});
+  });
+}
 function canEditFinOrders(){ return !isViewer() && (isAllWhUser() || myWarehouse()==='finished'); }
 function foDone(o, itemId){ return Math.round((o.log||[]).filter(l=>l.itemId===itemId).reduce((t,l)=>t+(Number(l.qty)||0),0)*100)/100; }
 function foItemPct(o, it){ const t=Number(it.target)||0; return t>0 ? Math.round(foDone(o,it.id)/t*1000)/10 : 0; }
