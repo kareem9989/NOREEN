@@ -313,6 +313,26 @@ body.viewer-mode .modal #saveBtn, body.viewer-mode .modal #draftBtn, body.viewer
 .hl-worker .j{color:var(--ink-soft);font-size:11.5px;margin-inline-start:auto;}
 .hl-total{font-weight:800;color:var(--navy);font-size:13px;margin-top:4px;}
 
+/* ===== تقرير أوردرات الإنتاج التام (طباعة) ===== */
+#printArea .fr-order{border:1px solid #E6E5F2;border-radius:12px;padding:10px 12px;margin-bottom:12px;break-inside:avoid;}
+#printArea .fr-oh{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+#printArea .fr-oh b{font-size:14px;color:#2D2B74;}
+#printArea .fr-oh .st{font-size:10px;padding:2px 9px;border-radius:999px;background:#EDECFA;color:#2D2B74;font-weight:800;}
+#printArea .fr-oh .st.c{background:#E3F6EE;color:#137A57;}
+#printArea .fr-oh .bar{flex:1;max-width:220px;height:9px;border-radius:5px;background:#EDECFA;overflow:hidden;margin-inline-start:auto;}
+#printArea .fr-oh .bar i{display:block;height:100%;background:#FEB913;}
+#printArea .fr-oh .bar i.d{background:#1FA97C;}
+#printArea .fr-oh .p{font-weight:800;font-size:13px;color:#2D2B74;min-width:46px;text-align:left;}
+#printArea .fr-pb{display:flex;align-items:center;gap:6px;}
+#printArea .fr-pb .hr-bar{flex:1;}
+#printArea .fr-pb .hr-bar i{background:#FEB913;}
+#printArea .fr-pb .hr-bar i.d{background:#1FA97C;}
+#printArea .fr-rem{color:#B4233A;font-weight:800;}
+#printArea .fr-order td,#printArea .fr-order th{white-space:nowrap !important;}
+#printArea .fr-order td:nth-child(2),#printArea .fr-order th:nth-child(2){white-space:normal !important;}
+#printArea .fr-order th:first-child{width:28px !important;}
+#printArea .fr-ok{color:#137A57;font-weight:800;}
+
 /* ===== تقرير الصالة: ورقة الطباعة ===== */
 #printArea .hr-page{font-family:'Cairo','Tajawal',Tahoma,Arial,sans-serif;color:#1E1D3D;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
 #printArea .hr-top{display:flex;justify-content:space-between;align-items:center;gap:16px;padding-bottom:12px;}
@@ -702,7 +722,7 @@ input.trc-picked{border-color:var(--ok) !important;}
       </div>
     </div>
     <nav class="nav" id="navList"></nav>
-    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 31-10 — v31</span></div>
+    <div class="sidebar-foot">نظام إدارة المخازن والإنتاج<br>EgyGulf Foods © 2026<br><span style="color:var(--gold);font-weight:700;">نسخة 31-10 — v33</span></div>
   </aside>
 
   <div class="main">
@@ -2226,7 +2246,7 @@ function renderGenericTab(tabId){
         ${tabId==='production' ? `<span id="exportScopeHint"></span>` : ''}
         <button class="btn btn-ghost" id="exportBtn">${svgIcon('download','sm')} تصدير Excel</button>
         ${tabId==='production' ? `<button class="btn btn-ghost" id="printBtn">${svgIcon('print','sm')} طباعة PDF</button>` : ''}
-        ${tabId==='whFinished' ? (()=>{ const nc=(DB.finOrders||[]).filter(o=>o.status==='closed').length; return `${nc?`<button class="btn btn-ghost" id="foToggle">${foShowClosed?'خبّي المقفولة':`🔒 المقفولة (${nc})`}</button>`:''}${canEditFinOrders()?`<button class="btn btn-ghost" id="foNew">+ أوردر جديد</button>`:''}`; })() : ''}
+        ${tabId==='whFinished' ? (()=>{ const nc=(DB.finOrders||[]).filter(o=>o.status==='closed').length; return `${nc?`<button class="btn btn-ghost" id="foToggle">${foShowClosed?'خبّي المقفولة':`🔒 المقفولة (${nc})`}</button>`:''}${canEditFinOrders()?`<button class="btn btn-ghost" id="foNew">+ أوردر جديد</button>`:''}<button class="btn btn-ghost" id="foPrint">${svgIcon('print','sm')} طباعة تقرير الأوردرات</button>`; })() : ''}
         ${isReadOnlyTab(tabId) ? `<span class="pill pill-navy">عرض فقط</span>` : `<button class="btn btn-gold" id="addBtn">+ ${addLabel}</button>`}
       </div>
     </div>
@@ -2265,6 +2285,7 @@ function renderGenericTab(tabId){
   }
   if(tabId==='whFinished'){
     const nb=document.getElementById('foNew'); if(nb) nb.addEventListener('click',()=>openNewFinOrder());
+    const pb=document.getElementById('foPrint'); if(pb) pb.addEventListener('click',()=>printFinOrdersReport());
     const tb=document.getElementById('foToggle'); if(tb) tb.addEventListener('click',()=>{ foShowClosed=!foShowClosed; renderGenericTab('whFinished'); });
     document.querySelectorAll('.fin-country-tabs [data-country]').forEach(btn=>{
       btn.addEventListener('click', ()=>{ tableState.filter = btn.dataset.country; renderGenericTab(tabId); });
@@ -2481,6 +2502,7 @@ function renderTableRows(tabId){
       ${cells}
       <td>
         <div class="row-actions">
+          ${tabId==='whFinished' && canEditFinOrders() ? `<button class="btn btn-sm btn-ghost" data-fopull="${item.id}" title="بيع / سحب برا الأوردر أو نقل لأوردر تاني">⇄ سحب</button>` : ''}
           ${hasHistory ? `<button class="icon-btn" data-act="history" data-id="${item.id}" title="سجل الحركة">${svgIcon('history','sm')}</button>` : ''}
           ${tabId==='waste' ? `<button class="icon-btn" data-act="wa" data-id="${item.id}" title="تحميل التقرير PDF">${svgIcon('print','sm')}</button>` : ''}
           ${isReadOnlyTab(tabId) ? '' : `<button class="icon-btn" data-act="edit" data-id="${item.id}" title="تعديل">${svgIcon('edit','sm')}</button>
@@ -6141,7 +6163,8 @@ let foShowClosed = false;
 /* الأوردر جوه جدول المخزن: "المطلوب" على الصنف، و"اتعمل" = الرصيد + اللي اتصرف منه (يعني كل اللي دخل) */
 function finOrderRec(name){ return (DB.finOrders||[]).find(o=>o.name===name); }
 function finOrderClosed(name){ const o=finOrderRec(name); return !!(o && o.status==='closed'); }
-function finItemDone(it){ const out=(it.history||[]).filter(h=>h.type==='صرف').reduce((t,h)=>t+(Number(h.qty)||0),0); return Math.round(((Number(it.balance)||0)+out)*100)/100; }
+// السحب برا الأوردر (بيع / نقل لأوردر تاني) معلّم noDone — بينقص "اتعمل" عشان الأوردر يبان ناقص
+function finItemDone(it){ const out=(it.history||[]).filter(h=>h.type==='صرف' && !h.noDone).reduce((t,h)=>t+(Number(h.qty)||0),0); return Math.round(((Number(it.balance)||0)+out)*100)/100; }
 function finOrderPct(name){
   const items=(DB.whFinished||[]).filter(i=>(i.country||'').trim()===name && Number(i.target)>0);
   if(!items.length) return null;
@@ -6149,6 +6172,7 @@ function finOrderPct(name){
 }
 function wireFinOrderButtons(root){
   const rr=()=>renderGenericTab('whFinished');
+  root.querySelectorAll('[data-fopull]').forEach(b=>b.addEventListener('click',()=>openFinPull(b.dataset.fopull)));
   root.querySelectorAll('[data-foclose]').forEach(b=>b.addEventListener('click',async ()=>{
     const name=b.dataset.foclose; const p=finOrderPct(name);
     if(!confirm(`قفل أوردر "${name}"؟${p!==null&&p<100?`\nالأوردر لسه ${p}% بس — هيتقفل كده.`:''}`)) return;
@@ -6164,6 +6188,113 @@ function wireFinOrderButtons(root){
     logAction(`فتح أوردر "${o.name}" تاني`);
     await persist(); rr(); showToast('الأوردر اتفتح تاني');
   }));
+}
+function openFinPull(itemId){
+  const it=(DB.whFinished||[]).find(x=>x.id===itemId); if(!it||!canEditFinOrders()) return;
+  const from=(it.country||'').trim();
+  const others=finOrderNames().filter(n=>n!==from && !finOrderClosed(n));
+  document.getElementById('modalRoot').innerHTML = `
+  <div class="modal-overlay" id="overlay"><div class="modal" style="max-width:520px;">
+    <div class="modal-head"><h3>سحب من ${from?`أوردر ${esc(from)}`:'الصنف'}</h3><button class="modal-close" id="closeX">✕</button></div>
+    <div class="modal-body">
+      <div style="font-weight:800;margin-bottom:10px;">${esc(it.name)} — الرصيد ${fmtNum(it.balance)} ${esc(unitShow(it.unit)||it.unit||'')}</div>
+      <div class="field"><label>هتعمل إيه؟</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <label class="hl-worker" style="cursor:pointer"><input type="radio" name="fpk" value="out" checked> بيع / سحب برا الأوردر</label>
+          <label class="hl-worker" style="cursor:pointer"><input type="radio" name="fpk" value="move"> نقل لأوردر تاني</label>
+        </div></div>
+      <div class="field"><label>الكمية *</label><input type="number" step="0.01" min="0" id="fp_qty" placeholder="0"></div>
+      <div class="field" id="fpReasonF"><label>السبب</label><input type="text" id="fp_reason" list="fpReasons" placeholder="مثال: بيع / عينات"><datalist id="fpReasons"><option value="بيع"><option value="عينات"><option value="سيلز القاهرة"></datalist></div>
+      <div class="field" id="fpToF" style="display:none;"><label>للأوردر *</label><select id="fp_to"><option value="">— اختار —</option>${others.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select></div>
+      <div class="muted" style="font-size:12px;" id="fpHint"></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" id="cancelBtn">إلغاء</button><button class="btn btn-primary" id="saveBtn">تمام</button></div>
+  </div></div>`;
+  const ov=document.getElementById('overlay'); ov.addEventListener('click',e=>{ if(e.target===ov) closeModal(); });
+  document.getElementById('closeX').addEventListener('click',closeModal); document.getElementById('cancelBtn').addEventListener('click',closeModal);
+  const kind=()=>document.querySelector('input[name="fpk"]:checked').value;
+  const upd=()=>{ const k=kind();
+    document.getElementById('fpReasonF').style.display = k==='out'?'':'none';
+    document.getElementById('fpToF').style.display = k==='move'?'':'none';
+    document.getElementById('fpHint').textContent = k==='out'
+      ? `الكمية هتتخصم من الرصيد، و"اتعمل" في ${from?`أوردر ${from}`:'الصنف'} هينقص بيها — يعني هيبان إنها محتاجة تتعمل تاني. لما تعمل غيرها دوس "إضافة +".`
+      : `الكمية هتتخصم من ${from?`أوردر ${from}`:'الصنف ده'} (الرصيد و"اتعمل") وتتضاف للأوردر التاني (الرصيد و"اتعمل").`; };
+  document.querySelectorAll('input[name="fpk"]').forEach(r=>r.addEventListener('change',upd)); upd();
+  document.getElementById('saveBtn').addEventListener('click',async ()=>{
+    const q=Number(document.getElementById('fp_qty').value), k=kind();
+    if(!(q>0)){ showToast('اكتب الكمية'); return; }
+    if(q>Number(it.balance)){ showToast(`الكمية أكبر من الرصيد (${fmtNum(it.balance)})`); return; }
+    const date=todayISO(), ts=new Date().toISOString(), ref='fp_'+uid();
+    if(k==='out'){
+      const reason=document.getElementById('fp_reason').value.trim();
+      it.balance=Math.round((Number(it.balance)-q)*100)/100;
+      it.history=it.history||[]; it.history.push({date, ts, type:'صرف', qty:q, noDone:true, notes:`سحب من الأوردر${reason?' — '+reason:''}`, refId:ref, by:userTag()});
+      logAction(`سحب ${fmtNum(q)} ${it.unit||''} "${it.name}" من ${from?`أوردر ${from}`:'الإنتاج التام'}${reason?' — '+reason:''}`);
+    } else {
+      const to=document.getElementById('fp_to').value;
+      if(!to){ showToast('اختار الأوردر'); return; }
+      let dst=(DB.whFinished||[]).find(x=>x.name.trim()===it.name.trim() && sameUnit(x.unit,it.unit) && (x.country||'').trim()===to);
+      if(!dst){ dst={id:uid(), name:it.name, unit:it.unit, country:to, balance:0, history:[]}; DB.whFinished.unshift(dst); }
+      it.balance=Math.round((Number(it.balance)-q)*100)/100;
+      it.history=it.history||[]; it.history.push({date, ts, type:'صرف', qty:q, noDone:true, notes:`نقل لأوردر ${to}`, refId:ref, by:userTag()});
+      dst.balance=Math.round((Number(dst.balance)+q)*100)/100;
+      dst.history=dst.history||[]; dst.history.push({date, ts, type:'اضافه', qty:q, notes:`نقل من أوردر ${from||'—'}`, refId:ref, by:userTag()});
+      logAction(`نقل ${fmtNum(q)} ${it.unit||''} "${it.name}" من أوردر ${from||'—'} لأوردر ${to}`);
+    }
+    await persist(); closeModal(); renderGenericTab('whFinished'); renderNav();
+    showToast(k==='out'?'اتسحب — والأوردر بقى ناقص الكمية دي':'اتنقل للأوردر التاني');
+  });
+}
+function printFinOrdersReport(){
+  const all=DB.whFinished||[];
+  let names=finOrderNames().filter(n=>all.some(i=>(i.country||'').trim()===n));
+  const one = tableState.filter && tableState.filter!=='__NONE__' && names.includes(tableState.filter) ? tableState.filter : null;
+  if(one) names=[one]; else if(!foShowClosed) names=names.filter(n=>!finOrderClosed(n));
+  if(!names.length){ showToast('مفيش أوردرات تتطبع'); return; }
+  const f=n=>fmtNum(Math.round((Number(n)||0)*100)/100);
+  let itemsN=0, doneN=0, pendN=0;
+  const orders=names.map(n=>{
+    const items=all.filter(i=>(i.country||'').trim()===n).map(i=>{
+      const t=Number(i.target)||0, d=finItemDone(i), p=t>0?Math.round(d/t*1000)/10:null;
+      if(t>0){ itemsN++; if(p>=100) doneN++; else pendN++; }
+      return {name:i.name, unit:unitShow(i.unit)||i.unit||'', t, d, rem:t>0?Math.max(0,Math.round((t-d)*100)/100):null, bal:Number(i.balance)||0, p};
+    }).sort((a,b)=>(a.p===null)-(b.p===null) || (a.p||0)-(b.p||0));
+    return {name:n, closed:finOrderClosed(n), pct:finOrderPct(n), items};
+  });
+  const withPct=orders.filter(o=>o.pct!==null);
+  const avg=withPct.length?Math.round(withPct.reduce((a,o)=>a+o.pct,0)/withPct.length*10)/10:null;
+  const today=todayISO();
+  document.getElementById('printArea').innerHTML=`<div class="hr-page">
+    <div class="hr-top"><div><div class="hr-title">تقرير أوردرات الإنتاج التام</div><div class="hr-sub">EgyGulf Foods — نظام إدارة المخازن والإنتاج</div></div><img src="${HALL_LOGO}" alt="EgyGulf Foods"></div>
+    <div class="hr-band"></div>
+    <div class="hr-info">
+      <div><b>التاريخ</b><span>${esc(hallDayName(today))} ${fmtDateAr(today)}</span></div>
+      <div><b>الأوردرات</b><span>${one?esc(one):(foShowClosed?'كل الأوردرات (والمقفولة)':'الأوردرات الشغالة')}</span></div>
+      <div><b>عدد الأوردرات</b><span>${orders.length}</span></div>
+      <div><b>طبعه</b><span>${esc(userTag())}</span></div>
+    </div>
+    <div class="hr-kpis">
+      <div class="hr-kpi"><b>متوسط الإنجاز</b><span>${avg===null?'—':avg+'%'}</span></div>
+      <div class="hr-kpi g"><b>أصناف ليها مطلوب</b><span>${itemsN} <small>صنف</small></span></div>
+      <div class="hr-kpi l"><b>أصناف خلصت 100%</b><span>${doneN} <small>صنف</small></span></div>
+      <div class="hr-kpi r"><b>أصناف لسه ناقصة</b><span>${pendN} <small>صنف</small></span></div>
+    </div>
+    ${orders.map((o,oi)=>`<div class="fr-order">
+      <div class="fr-oh"><span style="display:inline-flex;width:22px;height:22px;border-radius:50%;background:#FEB913;color:#2D2B74;font-size:11px;font-weight:800;align-items:center;justify-content:center;">${oi+1}</span>
+        <b>أوردر ${esc(o.name)}</b><span class="st ${o.closed?'c':''}">${o.closed?'مقفول ✓':'شغال'}</span>
+        ${o.pct!==null?`<div class="bar"><i class="${o.pct>=100?'d':''}" style="width:${Math.min(100,o.pct)}%"></i></div><span class="p">${o.pct}%</span>`:'<span class="p" style="margin-inline-start:auto;font-size:11px;color:#6B698F">مفيش مطلوب متحدد</span>'}</div>
+      <table><thead><tr><th style="width:24px">#</th><th>الصنف</th><th>المطلوب</th><th>اتعمل</th><th>الباقي</th><th>الرصيد دلوقتي</th><th style="width:24%">النسبة</th></tr></thead><tbody>
+        ${o.items.map((i,k)=>`<tr><td>${k+1}</td><td style="font-weight:700">${esc(i.name)}</td>
+          <td>${i.t?`${f(i.t)} ${esc(i.unit)}`:'—'}</td><td>${f(i.d)} ${esc(i.unit)}</td>
+          <td>${i.rem===null?'—':(i.rem?`<span class="fr-rem">${f(i.rem)} ${esc(i.unit)}</span>`:'<span class="fr-ok">خلص ✓</span>')}</td>
+          <td>${f(i.bal)} ${esc(i.unit)}</td>
+          <td>${i.p===null?'—':`<div class="fr-pb"><div class="hr-bar"><i class="${i.p>=100?'d':''}" style="width:${Math.max(3,Math.min(100,i.p))}%"></i></div><b>${i.p}%</b></div>`}</td></tr>`).join('')}
+      </tbody></table></div>`).join('')}
+    <div class="hr-sign"><div><div class="ln"></div>أمين مخزن الإنتاج التام</div><div><div class="ln"></div>مدير الإنتاج</div><div><div class="ln"></div>مدير المصنع</div></div>
+    <div class="hr-foot"><span>"اتعمل" = كل اللي دخل للأوردر ناقص اللي اتسحب منه (بيع / نقل)</span><span>اتطبع: ${new Date().toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'})}</span></div>
+  </div>`;
+  const img=document.querySelector('#printArea .hr-top img'); const go=()=>setTimeout(()=>window.print(),50);
+  if(img && !img.complete){ img.onload=go; img.onerror=go; } else go();
 }
 function openNewFinOrder(){
   if(!canEditFinOrders()) return;
